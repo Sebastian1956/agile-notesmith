@@ -109,81 +109,115 @@ export function CornellNoteGenerator() {
 
   const generateQuestions = (text: string): Array<{ question: string; answer: string }> => {
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 20);
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 50);
-    
-    // Create 5 distinct question types based on different aspects of the excerpt
     const questions: Array<{ question: string; answer: string }> = [];
+    const usedAnswers = new Set<string>();
     
-    // Q1: Main topic/subject
+    // Helper function to get unique answer
+    const getUniqueAnswer = (sentence: string): string => {
+      return sentence.trim().substring(0, 150) + (sentence.trim().length > 150 ? '...' : '');
+    };
+    
+    // Q1: Main topic/subject (use first substantial sentence)
     if (sentences.length > 0) {
+      const answer = getUniqueAnswer(sentences[0]);
       questions.push({
         question: "What is the primary subject discussed in this excerpt?",
-        answer: sentences[0].trim().substring(0, 150) + (sentences[0].trim().length > 150 ? '...' : '')
+        answer: answer
       });
+      usedAnswers.add(answer);
     }
     
-    // Q2: Key method/approach (from middle content)
-    const methodSentence = sentences.find(s => 
-      s.toLowerCase().includes('method') || s.toLowerCase().includes('approach') || 
-      s.toLowerCase().includes('technique') || s.toLowerCase().includes('process')
-    );
+    // Q2: Key method/approach (find different sentence with method keywords)
+    const methodSentence = sentences.find(s => {
+      const answer = getUniqueAnswer(s);
+      return !usedAnswers.has(answer) && (
+        s.toLowerCase().includes('method') || s.toLowerCase().includes('approach') || 
+        s.toLowerCase().includes('technique') || s.toLowerCase().includes('process')
+      );
+    });
     if (methodSentence && questions.length < 5) {
+      const answer = getUniqueAnswer(methodSentence);
       questions.push({
         question: "What method or approach is described?",
-        answer: methodSentence.trim().substring(0, 150) + (methodSentence.trim().length > 150 ? '...' : '')
+        answer: answer
       });
+      usedAnswers.add(answer);
     }
     
-    // Q3: Purpose/objective
-    const purposeSentence = sentences.find(s => 
-      s.toLowerCase().includes('purpose') || s.toLowerCase().includes('objective') || 
-      s.toLowerCase().includes('goal') || s.toLowerCase().includes('aim')
-    );
+    // Q3: Purpose/objective (find different sentence with purpose keywords)
+    const purposeSentence = sentences.find(s => {
+      const answer = getUniqueAnswer(s);
+      return !usedAnswers.has(answer) && (
+        s.toLowerCase().includes('purpose') || s.toLowerCase().includes('objective') || 
+        s.toLowerCase().includes('goal') || s.toLowerCase().includes('aim')
+      );
+    });
     if (purposeSentence && questions.length < 5) {
+      const answer = getUniqueAnswer(purposeSentence);
       questions.push({
         question: "What purpose or objective is mentioned?",
-        answer: purposeSentence.trim().substring(0, 150) + (purposeSentence.trim().length > 150 ? '...' : '')
+        answer: answer
       });
+      usedAnswers.add(answer);
     }
     
-    // Q4: Benefits/value (different from purpose)
-    const benefitSentence = sentences.find(s => 
-      s.toLowerCase().includes('benefit') || s.toLowerCase().includes('value') || 
-      s.toLowerCase().includes('advantage') || s.toLowerCase().includes('outcome')
-    );
-    if (benefitSentence && !questions.some(q => q.answer === benefitSentence.trim()) && questions.length < 5) {
+    // Q4: Benefits/value (find different sentence with benefit keywords)
+    const benefitSentence = sentences.find(s => {
+      const answer = getUniqueAnswer(s);
+      return !usedAnswers.has(answer) && (
+        s.toLowerCase().includes('benefit') || s.toLowerCase().includes('value') || 
+        s.toLowerCase().includes('advantage') || s.toLowerCase().includes('outcome')
+      );
+    });
+    if (benefitSentence && questions.length < 5) {
+      const answer = getUniqueAnswer(benefitSentence);
       questions.push({
         question: "What benefits or value are highlighted?",
-        answer: benefitSentence.trim().substring(0, 150) + (benefitSentence.trim().length > 150 ? '...' : '')
+        answer: answer
       });
+      usedAnswers.add(answer);
     }
     
-    // Q5: Requirements/recommendations
-    const reqSentence = sentences.find(s => 
-      s.toLowerCase().includes('should') || s.toLowerCase().includes('must') || 
-      s.toLowerCase().includes('require') || s.toLowerCase().includes('recommend')
-    );
-    if (reqSentence && !questions.some(q => q.answer === reqSentence.trim()) && questions.length < 5) {
+    // Q5: Requirements/recommendations (find different sentence with requirement keywords)
+    const reqSentence = sentences.find(s => {
+      const answer = getUniqueAnswer(s);
+      return !usedAnswers.has(answer) && (
+        s.toLowerCase().includes('should') || s.toLowerCase().includes('must') || 
+        s.toLowerCase().includes('require') || s.toLowerCase().includes('recommend')
+      );
+    });
+    if (reqSentence && questions.length < 5) {
+      const answer = getUniqueAnswer(reqSentence);
       questions.push({
         question: "What requirements or recommendations are stated?",
-        answer: reqSentence.trim().substring(0, 150) + (reqSentence.trim().length > 150 ? '...' : '')
+        answer: answer
       });
+      usedAnswers.add(answer);
     }
     
-    // Fill remaining slots with distinct sentences from different parts
+    // Fill remaining slots with completely distinct sentences from different sections
     if (questions.length < 5) {
-      const remainingSentences = sentences.filter(s => 
-        !questions.some(q => q.answer.includes(s.trim().substring(0, 50))) && s.trim().length > 30
-      );
+      const remainingSentences = sentences.filter(s => {
+        const answer = getUniqueAnswer(s);
+        return !usedAnswers.has(answer) && s.trim().length > 30;
+      });
       
-      while (questions.length < 5 && remainingSentences.length > 0) {
-        const sentence = remainingSentences.shift();
-        if (sentence) {
+      // Select sentences from different parts of the text to ensure variety
+      const step = Math.max(1, Math.floor(remainingSentences.length / (5 - questions.length + 1)));
+      let index = 0;
+      
+      while (questions.length < 5 && index < remainingSentences.length) {
+        const sentence = remainingSentences[index];
+        const answer = getUniqueAnswer(sentence);
+        
+        if (!usedAnswers.has(answer)) {
           questions.push({
             question: `What does the excerpt state about ${sentence.trim().split(' ').slice(0, 4).join(' ').toLowerCase()}?`,
-            answer: sentence.trim().substring(0, 150) + (sentence.trim().length > 150 ? '...' : '')
+            answer: answer
           });
+          usedAnswers.add(answer);
         }
+        index += step;
       }
     }
     
