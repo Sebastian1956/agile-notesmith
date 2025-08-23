@@ -76,46 +76,60 @@ export function CornellNoteGenerator() {
   };
 
   const extractKeywords = (text: string): string[] => {
-    // Simple keyword extraction based on common Agile terms
-    const agileTerms = [
-      'agile mindset', 'business value', 'rolling-wave planning', 'three horizons',
-      'strategy', 'initiative', 'delivery', 'business outcomes', 'customer collaboration',
-      'adaptive planning', 'iterative development', 'stakeholder engagement',
-      'value stream', 'user stories', 'requirements elicitation'
-    ];
+    // Extract key terms and phrases directly from the excerpt
+    const words = text.toLowerCase().split(/\s+/);
+    const phrases = text.toLowerCase().match(/[a-zA-Z\s]{2,}/g) || [];
     
-    const lowerText = text.toLowerCase();
-    const foundTerms = agileTerms.filter(term => lowerText.includes(term));
+    // Look for important terms mentioned in the text
+    const importantTerms: string[] = [];
+    const termCounts: { [key: string]: number } = {};
     
-    // Add some generic terms if we don't have enough
-    const additionalTerms = ['business analysis', 'agile practices', 'change management'];
-    const allTerms = [...foundTerms, ...additionalTerms].slice(0, 6);
+    // Extract significant phrases (2-4 words)
+    for (let i = 0; i < words.length - 1; i++) {
+      const twoWord = words.slice(i, i + 2).join(' ');
+      const threeWord = words.slice(i, i + 3).join(' ');
+      
+      if (twoWord.length > 6 && !twoWord.includes('the') && !twoWord.includes('and')) {
+        termCounts[twoWord] = (termCounts[twoWord] || 0) + 1;
+      }
+      if (threeWord.length > 10 && !threeWord.includes('the') && !threeWord.includes('and')) {
+        termCounts[threeWord] = (termCounts[threeWord] || 0) + 1;
+      }
+    }
     
-    return allTerms;
+    // Sort by frequency and take top terms
+    const sortedTerms = Object.entries(termCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 6)
+      .map(([term]) => term);
+    
+    return sortedTerms.length >= 5 ? sortedTerms : 
+      [...sortedTerms, ...words.filter(w => w.length > 6).slice(0, 6 - sortedTerms.length)];
   };
 
   const generateQuestions = (text: string): Array<{ question: string; answer: string }> => {
-    // Generate contextual questions based on the excerpt
+    // Generate questions that can be answered directly from the excerpt
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 20);
     const questions = [
       {
-        question: "What is the main focus of this Agile Extension v2 section?",
-        answer: "The section emphasizes the importance of adopting an agile mindset for business analysis to deliver maximum business value."
+        question: "What is the main topic discussed in this excerpt?",
+        answer: sentences[0]?.trim() || "The excerpt discusses business analysis concepts."
       },
       {
-        question: "How does agile business analysis differ from traditional approaches?",
-        answer: "Agile BA focuses on adaptive planning, continuous collaboration, and delivering value incrementally rather than following rigid processes."
+        question: "What key concept or approach is emphasized?",
+        answer: sentences.find(s => s.toLowerCase().includes('approach') || s.toLowerCase().includes('method') || s.toLowerCase().includes('practice'))?.trim() || sentences[1]?.trim() || "Key practices are outlined."
       },
       {
-        question: "What role do business analysts play in agile environments?",
-        answer: "Business analysts facilitate stakeholder collaboration, help define business value, and ensure requirements align with customer needs."
+        question: "What benefits or outcomes are mentioned?",
+        answer: sentences.find(s => s.toLowerCase().includes('benefit') || s.toLowerCase().includes('value') || s.toLowerCase().includes('outcome'))?.trim() || sentences[2]?.trim() || "Benefits are described in the text."
       },
       {
-        question: "Why is the three horizons model important for agile planning?",
-        answer: "It provides a structured approach to planning across Strategy, Initiative, and Delivery levels while maintaining flexibility."
+        question: "What challenges or considerations are addressed?",
+        answer: sentences.find(s => s.toLowerCase().includes('challenge') || s.toLowerCase().includes('consider') || s.toLowerCase().includes('important'))?.trim() || sentences[3]?.trim() || "Important considerations are noted."
       },
       {
-        question: "How should business analysts adapt their practices for agile success?",
-        answer: "They should embrace iterative approaches, focus on outcomes over outputs, and maintain close collaboration with all stakeholders."
+        question: "What recommendation or guidance is provided?",
+        answer: sentences.find(s => s.toLowerCase().includes('should') || s.toLowerCase().includes('recommend') || s.toLowerCase().includes('must'))?.trim() || sentences[sentences.length - 1]?.trim() || "Specific guidance is provided."
       }
     ];
 
@@ -123,18 +137,53 @@ export function CornellNoteGenerator() {
   };
 
   const generateTakeaways = (text: string): string[] => {
-    return [
-      "Agile mindset transcends specific methodologies or frameworks",
-      "Business value delivery requires continuous stakeholder collaboration",
-      "Adaptive planning enables better response to changing requirements",
-      "Three horizons model provides structure while maintaining agility",
-      "Business analysts must evolve their practices for agile environments",
-      "Customer outcomes should drive all analysis activities"
-    ];
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 15);
+    const takeaways: string[] = [];
+    
+    // Extract key statements from the text
+    sentences.forEach(sentence => {
+      const trimmed = sentence.trim();
+      if (trimmed.length > 30 && trimmed.length < 120) {
+        // Look for sentences that contain key concepts
+        if (trimmed.toLowerCase().includes('important') || 
+            trimmed.toLowerCase().includes('key') ||
+            trimmed.toLowerCase().includes('must') ||
+            trimmed.toLowerCase().includes('should') ||
+            trimmed.toLowerCase().includes('essential') ||
+            trimmed.toLowerCase().includes('critical')) {
+          takeaways.push(trimmed);
+        }
+      }
+    });
+    
+    // If we don't have enough, add the first few substantive sentences
+    if (takeaways.length < 5) {
+      const additionalTakeaways = sentences
+        .filter(s => s.trim().length > 40 && s.trim().length < 100)
+        .slice(0, 7 - takeaways.length);
+      takeaways.push(...additionalTakeaways.map(s => s.trim()));
+    }
+    
+    return takeaways.slice(0, 7);
   };
 
   const generateSummary = (text: string): string => {
-    return "The Agile Extension v2 emphasizes adopting an agile mindset that goes beyond traditional business analysis practices. It highlights the importance of delivering business value through adaptive planning and continuous stakeholder collaboration. The three horizons planning model (Strategy, Initiative, Delivery) provides a structured yet flexible framework for agile environments. Business analysts must evolve their approach to focus on customer outcomes and iterative value delivery. Success in agile business analysis requires embracing change, maintaining close collaboration, and consistently aligning analysis activities with business objectives.";
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 20);
+    const summaryParts: string[] = [];
+    
+    // Take key sentences from different parts of the text
+    if (sentences.length >= 5) {
+      summaryParts.push(sentences[0]?.trim()); // Opening statement
+      summaryParts.push(sentences[Math.floor(sentences.length * 0.25)]?.trim()); // First quarter
+      summaryParts.push(sentences[Math.floor(sentences.length * 0.5)]?.trim()); // Middle
+      summaryParts.push(sentences[Math.floor(sentences.length * 0.75)]?.trim()); // Third quarter
+      summaryParts.push(sentences[sentences.length - 1]?.trim()); // Closing statement
+    } else {
+      // For shorter texts, use available sentences
+      summaryParts.push(...sentences.map(s => s.trim()));
+    }
+    
+    return summaryParts.filter(Boolean).slice(0, 6).join('. ') + '.';
   };
 
   const copyToClipboard = () => {
@@ -152,7 +201,7 @@ ${cornellNote.keywords.map(keyword => `- ${keyword}`).join('\n')}
 <!-- qa:start -->
 ## Questions & Answers
 ${cornellNote.questions.map((qa, index) => 
-  `- **Q${index + 1}:** ${qa.question}\n  - *Answer:* ${qa.answer}`
+  `- **Q${index + 1}:** ${qa.question}\n  <details><summary>Answer</summary>${qa.answer}</details>`
 ).join('\n\n')}
 <!-- qa:end -->
 
