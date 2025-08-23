@@ -108,32 +108,86 @@ export function CornellNoteGenerator() {
   };
 
   const generateQuestions = (text: string): Array<{ question: string; answer: string }> => {
-    // Generate questions that can be answered directly from the excerpt
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 20);
-    const questions = [
-      {
-        question: "What is the main topic discussed in this excerpt?",
-        answer: sentences[0]?.trim() || "The excerpt discusses business analysis concepts."
-      },
-      {
-        question: "What key concept or approach is emphasized?",
-        answer: sentences.find(s => s.toLowerCase().includes('approach') || s.toLowerCase().includes('method') || s.toLowerCase().includes('practice'))?.trim() || sentences[1]?.trim() || "Key practices are outlined."
-      },
-      {
-        question: "What benefits or outcomes are mentioned?",
-        answer: sentences.find(s => s.toLowerCase().includes('benefit') || s.toLowerCase().includes('value') || s.toLowerCase().includes('outcome'))?.trim() || sentences[2]?.trim() || "Benefits are described in the text."
-      },
-      {
-        question: "What challenges or considerations are addressed?",
-        answer: sentences.find(s => s.toLowerCase().includes('challenge') || s.toLowerCase().includes('consider') || s.toLowerCase().includes('important'))?.trim() || sentences[3]?.trim() || "Important considerations are noted."
-      },
-      {
-        question: "What recommendation or guidance is provided?",
-        answer: sentences.find(s => s.toLowerCase().includes('should') || s.toLowerCase().includes('recommend') || s.toLowerCase().includes('must'))?.trim() || sentences[sentences.length - 1]?.trim() || "Specific guidance is provided."
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 50);
+    
+    // Create 5 distinct question types based on different aspects of the excerpt
+    const questions: Array<{ question: string; answer: string }> = [];
+    
+    // Q1: Main topic/subject
+    if (sentences.length > 0) {
+      questions.push({
+        question: "What is the primary subject discussed in this excerpt?",
+        answer: sentences[0].trim().substring(0, 150) + (sentences[0].trim().length > 150 ? '...' : '')
+      });
+    }
+    
+    // Q2: Key method/approach (from middle content)
+    const methodSentence = sentences.find(s => 
+      s.toLowerCase().includes('method') || s.toLowerCase().includes('approach') || 
+      s.toLowerCase().includes('technique') || s.toLowerCase().includes('process')
+    );
+    if (methodSentence && questions.length < 5) {
+      questions.push({
+        question: "What method or approach is described?",
+        answer: methodSentence.trim().substring(0, 150) + (methodSentence.trim().length > 150 ? '...' : '')
+      });
+    }
+    
+    // Q3: Purpose/objective
+    const purposeSentence = sentences.find(s => 
+      s.toLowerCase().includes('purpose') || s.toLowerCase().includes('objective') || 
+      s.toLowerCase().includes('goal') || s.toLowerCase().includes('aim')
+    );
+    if (purposeSentence && questions.length < 5) {
+      questions.push({
+        question: "What purpose or objective is mentioned?",
+        answer: purposeSentence.trim().substring(0, 150) + (purposeSentence.trim().length > 150 ? '...' : '')
+      });
+    }
+    
+    // Q4: Benefits/value (different from purpose)
+    const benefitSentence = sentences.find(s => 
+      s.toLowerCase().includes('benefit') || s.toLowerCase().includes('value') || 
+      s.toLowerCase().includes('advantage') || s.toLowerCase().includes('outcome')
+    );
+    if (benefitSentence && !questions.some(q => q.answer === benefitSentence.trim()) && questions.length < 5) {
+      questions.push({
+        question: "What benefits or value are highlighted?",
+        answer: benefitSentence.trim().substring(0, 150) + (benefitSentence.trim().length > 150 ? '...' : '')
+      });
+    }
+    
+    // Q5: Requirements/recommendations
+    const reqSentence = sentences.find(s => 
+      s.toLowerCase().includes('should') || s.toLowerCase().includes('must') || 
+      s.toLowerCase().includes('require') || s.toLowerCase().includes('recommend')
+    );
+    if (reqSentence && !questions.some(q => q.answer === reqSentence.trim()) && questions.length < 5) {
+      questions.push({
+        question: "What requirements or recommendations are stated?",
+        answer: reqSentence.trim().substring(0, 150) + (reqSentence.trim().length > 150 ? '...' : '')
+      });
+    }
+    
+    // Fill remaining slots with distinct sentences from different parts
+    if (questions.length < 5) {
+      const remainingSentences = sentences.filter(s => 
+        !questions.some(q => q.answer.includes(s.trim().substring(0, 50))) && s.trim().length > 30
+      );
+      
+      while (questions.length < 5 && remainingSentences.length > 0) {
+        const sentence = remainingSentences.shift();
+        if (sentence) {
+          questions.push({
+            question: `What does the excerpt state about ${sentence.trim().split(' ').slice(0, 4).join(' ').toLowerCase()}?`,
+            answer: sentence.trim().substring(0, 150) + (sentence.trim().length > 150 ? '...' : '')
+          });
+        }
       }
-    ];
-
-    return questions;
+    }
+    
+    return questions.slice(0, 5);
   };
 
   const generateTakeaways = (text: string): string[] => {
@@ -201,7 +255,7 @@ ${cornellNote.keywords.map(keyword => `- ${keyword}`).join('\n')}
 <!-- qa:start -->
 ## Questions & Answers
 ${cornellNote.questions.map((qa, index) => 
-  `- **Q${index + 1}:** ${qa.question}\n  <details><summary>Answer</summary>${qa.answer}</details>`
+  `- **Q${index + 1}:** ${qa.question}\n  <details><summary>Answer</summary><p>${qa.answer}</p></details>`
 ).join('\n\n')}
 <!-- qa:end -->
 
