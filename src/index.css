@@ -8,7 +8,7 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    --background: 210 40% 98%;
     --foreground: 222.2 84% 4.9%;
 
     --card: 0 0% 100%;
@@ -17,26 +17,33 @@ All colors MUST be HSL.
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96.1%;
+    --secondary: 210 40% 96%;
     --secondary-foreground: 222.2 47.4% 11.2%;
 
-    --muted: 210 40% 96.1%;
+    --muted: 210 40% 94%;
     --muted-foreground: 215.4 16.3% 46.9%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 142 71% 45%;
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
 
     --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --input: 0 0% 100%;
+    --ring: 217 91% 60%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
+
+    /* Custom design tokens */
+    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(142 71% 45%));
+    --gradient-subtle: linear-gradient(180deg, hsl(210 40% 98%), hsl(210 40% 96%));
+    --shadow-elegant: 0 10px 30px -10px hsl(217 91% 60% / 0.2);
+    --shadow-soft: 0 4px 12px -4px hsl(217 91% 60% / 0.15);
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
     --sidebar-background: 0 0% 98%;
 
@@ -100,6 +107,28 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+  }
+}
+
+@layer utilities {
+  .gradient-primary {
+    background: var(--gradient-primary);
+  }
+  
+  .gradient-subtle {
+    background: var(--gradient-subtle);
+  }
+  
+  .shadow-elegant {
+    box-shadow: var(--shadow-elegant);
+  }
+  
+  .shadow-soft {
+    box-shadow: var(--shadow-soft);
+  }
+  
+  .transition-smooth {
+    transition: var(--transition-smooth);
   }
 }
