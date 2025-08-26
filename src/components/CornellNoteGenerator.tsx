@@ -3,7 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Copy, FileText, Sparkles } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Copy, FileText, Sparkles, ShieldCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface CornellNote {
@@ -11,7 +13,7 @@ interface CornellNote {
   date: string;
   module: string;
   keywords: string[];
-  questions: Array<{ question: string; answer: string }>;
+  questions: Array<{ question: string; answer: string; evidence?: string; needsReview?: boolean }>;
   takeaways: string[];
   summary: string;
 }
@@ -20,6 +22,7 @@ export function CornellNoteGenerator() {
   const [excerpt, setExcerpt] = useState("");
   const [cornellNote, setCornellNote] = useState<CornellNote | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [strictMode, setStrictMode] = useState(false);
   const { toast } = useToast();
 
   const generateCornellNote = async () => {
@@ -54,10 +57,15 @@ export function CornellNoteGenerator() {
         date: new Date().toISOString().split('T')[0],
         module: "Agile Extension v2",
         keywords: extractKeywords(excerpt),
-        questions: generateQuestions(excerpt),
+        questions: generateQuestions(excerpt, strictMode),
         takeaways: generateTakeaways(excerpt),
         summary: generateSummary(excerpt)
       };
+
+      // Validate evidence in strict mode
+      if (strictMode) {
+        validateEvidence(note);
+      }
 
       setCornellNote(note);
       toast({
@@ -107,23 +115,56 @@ export function CornellNoteGenerator() {
       [...sortedTerms, ...words.filter(w => w.length > 6).slice(0, 6 - sortedTerms.length)];
   };
 
-  const generateQuestions = (text: string): Array<{ question: string; answer: string }> => {
+  const validateEvidence = (note: CornellNote) => {
+    let hasIssues = false;
+    note.questions.forEach(item => {
+      if (!item.evidence || item.evidence.trim().length === 0) {
+        item.needsReview = true;
+        hasIssues = true;
+      }
+    });
+    
+    if (hasIssues) {
+      toast({
+        title: "Missing evidence detected",
+        description: "Some Q&A items lack evidence quotes and need review.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const generateQuestions = (text: string, isStrict: boolean = false): Array<{ question: string; answer: string; evidence?: string; needsReview?: boolean }> => {
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 20);
-    const questions: Array<{ question: string; answer: string }> = [];
+    const questions: Array<{ question: string; answer: string; evidence?: string; needsReview?: boolean }> = [];
     const usedAnswers = new Set<string>();
     
     // Helper function to get unique answer
     const getUniqueAnswer = (sentence: string): string => {
       return sentence.trim().substring(0, 150) + (sentence.trim().length > 150 ? '...' : '');
     };
+
+    // Helper function to extract evidence (short quote from text)
+    const getEvidence = (sentence: string): string => {
+      const words = sentence.trim().split(' ');
+      return words.slice(0, 8).join(' ') + (words.length > 8 ? '...' : '');
+    };
     
     // Q1: Main topic/subject (use first substantial sentence)
     if (sentences.length > 0) {
       const answer = getUniqueAnswer(sentences[0]);
-      questions.push({
+      const question: { question: string; answer: string; evidence?: string; needsReview?: boolean } = {
         question: "What is the primary subject discussed in this excerpt?",
         answer: answer
-      });
+      };
+      
+      if (isStrict) {
+        question.evidence = getEvidence(sentences[0]);
+        if (!question.evidence.trim()) {
+          question.needsReview = true;
+        }
+      }
+      
+      questions.push(question);
       usedAnswers.add(answer);
     }
     
@@ -137,10 +178,19 @@ export function CornellNoteGenerator() {
     });
     if (methodSentence && questions.length < 5) {
       const answer = getUniqueAnswer(methodSentence);
-      questions.push({
+      const question: { question: string; answer: string; evidence?: string; needsReview?: boolean } = {
         question: "What method or approach is described?",
         answer: answer
-      });
+      };
+      
+      if (isStrict) {
+        question.evidence = getEvidence(methodSentence);
+        if (!question.evidence.trim()) {
+          question.needsReview = true;
+        }
+      }
+      
+      questions.push(question);
       usedAnswers.add(answer);
     }
     
@@ -154,10 +204,19 @@ export function CornellNoteGenerator() {
     });
     if (purposeSentence && questions.length < 5) {
       const answer = getUniqueAnswer(purposeSentence);
-      questions.push({
+      const question: { question: string; answer: string; evidence?: string; needsReview?: boolean } = {
         question: "What purpose or objective is mentioned?",
         answer: answer
-      });
+      };
+      
+      if (isStrict) {
+        question.evidence = getEvidence(purposeSentence);
+        if (!question.evidence.trim()) {
+          question.needsReview = true;
+        }
+      }
+      
+      questions.push(question);
       usedAnswers.add(answer);
     }
     
@@ -171,10 +230,19 @@ export function CornellNoteGenerator() {
     });
     if (benefitSentence && questions.length < 5) {
       const answer = getUniqueAnswer(benefitSentence);
-      questions.push({
+      const question: { question: string; answer: string; evidence?: string; needsReview?: boolean } = {
         question: "What benefits or value are highlighted?",
         answer: answer
-      });
+      };
+      
+      if (isStrict) {
+        question.evidence = getEvidence(benefitSentence);
+        if (!question.evidence.trim()) {
+          question.needsReview = true;
+        }
+      }
+      
+      questions.push(question);
       usedAnswers.add(answer);
     }
     
@@ -188,10 +256,19 @@ export function CornellNoteGenerator() {
     });
     if (reqSentence && questions.length < 5) {
       const answer = getUniqueAnswer(reqSentence);
-      questions.push({
+      const question: { question: string; answer: string; evidence?: string; needsReview?: boolean } = {
         question: "What requirements or recommendations are stated?",
         answer: answer
-      });
+      };
+      
+      if (isStrict) {
+        question.evidence = getEvidence(reqSentence);
+        if (!question.evidence.trim()) {
+          question.needsReview = true;
+        }
+      }
+      
+      questions.push(question);
       usedAnswers.add(answer);
     }
     
@@ -211,10 +288,19 @@ export function CornellNoteGenerator() {
         const answer = getUniqueAnswer(sentence);
         
         if (!usedAnswers.has(answer)) {
-          questions.push({
+          const question: { question: string; answer: string; evidence?: string; needsReview?: boolean } = {
             question: `What does the excerpt state about ${sentence.trim().split(' ').slice(0, 4).join(' ').toLowerCase()}?`,
             answer: answer
-          });
+          };
+          
+          if (isStrict) {
+            question.evidence = getEvidence(sentence);
+            if (!question.evidence.trim()) {
+              question.needsReview = true;
+            }
+          }
+          
+          questions.push(question);
           usedAnswers.add(answer);
         }
         index += step;
@@ -342,8 +428,25 @@ ${cornellNote.summary}
                 placeholder="Paste your 1-2 page excerpt from the Agile Extension v2 here..."
                 value={excerpt}
                 onChange={(e) => setExcerpt(e.target.value)}
-                className="min-h-[400px] resize-none border-border/50 focus:border-primary transition-smooth"
+                className="min-h-[350px] resize-none border-border/50 focus:border-primary transition-smooth"
               />
+              
+              {/* Strict Mode Toggle */}
+              <div className="flex items-center justify-between p-3 bg-accent/10 rounded-lg border border-accent/20">
+                <div className="flex items-center gap-3">
+                  <ShieldCheck className="w-5 h-5 text-accent" />
+                  <div>
+                    <Label htmlFor="strict-mode" className="font-medium">Strict Mode</Label>
+                    <p className="text-sm text-muted-foreground">Requires evidence quotes for each Q&A item</p>
+                  </div>
+                </div>
+                <Switch
+                  id="strict-mode"
+                  checked={strictMode}
+                  onCheckedChange={setStrictMode}
+                />
+              </div>
+              
               <div className="flex items-center justify-between">
                 <Badge variant="outline" className="text-muted-foreground">
                   {excerpt.trim().split(/\s+/).filter(word => word.length > 0).length} words
@@ -408,9 +511,19 @@ ${cornellNote.summary}
                     <h4 className="font-semibold text-primary mb-3">Questions & Answers</h4>
                     <div className="space-y-3">
                       {cornellNote.questions.map((qa, index) => (
-                        <div key={index} className="pl-4 border-l-2 border-accent/30">
+                        <div key={index} className={`pl-4 border-l-2 ${qa.needsReview ? 'border-destructive/50 bg-destructive/5' : 'border-accent/30'}`}>
                           <p className="font-medium">Q{index + 1}: {qa.question}</p>
                           <p className="text-muted-foreground mt-1 italic">Answer: {qa.answer}</p>
+                          {qa.evidence && (
+                            <p className="text-xs text-primary mt-1 font-mono bg-primary/10 px-2 py-1 rounded">
+                              Evidence: "{qa.evidence}"
+                            </p>
+                          )}
+                          {qa.needsReview && (
+                            <p className="text-xs text-destructive mt-1 font-medium">
+                              ⚠️ Needs review - missing evidence
+                            </p>
+                          )}
                         </div>
                       ))}
                     </div>
