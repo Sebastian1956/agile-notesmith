@@ -16,6 +16,8 @@ interface CornellNote {
   questions: Array<{ question: string; answer: string; evidence?: string; needsReview?: boolean }>;
   takeaways: string[];
   summary: string;
+  isValid?: boolean;
+  validationErrors?: string[];
 }
 
 export function CornellNoteGenerator() {
@@ -105,31 +107,122 @@ export function CornellNoteGenerator() {
       }
     }
     
-    // Sort by frequency and take top terms
+    // Sort by frequency and take appropriate number of terms
     const sortedTerms = Object.entries(termCounts)
       .sort(([,a], [,b]) => b - a)
-      .slice(0, 6)
+      .slice(0, strictMode ? 7 : 6)
       .map(([term]) => term);
+    
+    // In strict mode, ensure we have 5-7 unique keywords
+    if (strictMode) {
+      const targetCount = Math.max(5, Math.min(7, sortedTerms.length));
+      if (sortedTerms.length < 5) {
+        // Add single important words if we don't have enough phrases
+        const singleWords = words.filter(w => w.length > 6 && !['the', 'and', 'that', 'this', 'with'].includes(w));
+        const uniqueWords = [...new Set(singleWords)].slice(0, 5 - sortedTerms.length);
+        return [...sortedTerms, ...uniqueWords].slice(0, targetCount);
+      }
+      return sortedTerms.slice(0, targetCount);
+    }
     
     return sortedTerms.length >= 5 ? sortedTerms : 
       [...sortedTerms, ...words.filter(w => w.length > 6).slice(0, 6 - sortedTerms.length)];
   };
 
-  const validateEvidence = (note: CornellNote) => {
-    let hasIssues = false;
-    note.questions.forEach(item => {
-      if (!item.evidence || item.evidence.trim().length === 0) {
-        item.needsReview = true;
-        hasIssues = true;
+  const validateStrictMode = (note: CornellNote): { isValid: boolean; errors: string[] } => {
+    const errors: string[] = [];
+    
+    // Check keyword count (5-7)
+    if (note.keywords.length < 5 || note.keywords.length > 7) {
+      errors.push(`Keywords must be 5-7 items (found ${note.keywords.length})`);
+    }
+    
+    // Check Q&A count (≥5)
+    if (note.questions.length < 5) {
+      errors.push(`Q&A must have ≥5 items (found ${note.questions.length})`);
+    }
+    
+    // Check takeaways count (5-7)
+    if (note.takeaways.length < 5 || note.takeaways.length > 7) {
+      errors.push(`Takeaways must be 5-7 items (found ${note.takeaways.length})`);
+    }
+    
+    // Check summary sentence count (4-8)
+    const summaryBlocks = note.summary.split(/[.!?]+/).filter(s => s.trim().length > 10);
+    if (summaryBlocks.length < 4 || summaryBlocks.length > 8) {
+      errors.push(`Summary must be 4-8 sentences (found ${summaryBlocks.length})`);
+    }
+    
+    // Check each Q&A item for evidence and full sentences
+    note.questions.forEach((qa, index) => {
+      if (!qa.evidence || qa.evidence.trim().length === 0) {
+        errors.push(`Q${index + 1} missing evidence quote`);
+      }
+      
+      // Check answer is full sentence (no ellipses, ends with punctuation)
+      if (qa.answer.includes('...')) {
+        errors.push(`Q${index + 1} answer contains ellipses - must be full sentences`);
+      }
+      
+      if (!qa.answer.match(/[.!?]$/)) {
+        errors.push(`Q${index + 1} answer must end with punctuation`);
       }
     });
     
-    if (hasIssues) {
-      toast({
-        title: "Missing evidence detected",
-        description: "Some Q&A items lack evidence quotes and need review.",
-        variant: "destructive",
+    // Check keyword uniqueness
+    const uniqueKeywords = new Set(note.keywords);
+    if (uniqueKeywords.size !== note.keywords.length) {
+      errors.push('All keywords must be unique');
+    }
+    
+    // Check question uniqueness
+    const uniqueQuestions = new Set(note.questions.map(q => q.question));
+    if (uniqueQuestions.size !== note.questions.length) {
+      errors.push('All questions must be unique');
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  };
+
+  const validateEvidence = (note: CornellNote) => {
+    if (strictMode) {
+      const validation = validateStrictMode(note);
+      note.isValid = validation.isValid;
+      note.validationErrors = validation.errors;
+      
+      if (!validation.isValid) {
+        note.questions.forEach(item => {
+          if (!item.evidence || item.evidence.trim().length === 0) {
+            item.needsReview = true;
+          }
+        });
+        
+        toast({
+          title: "Strict Mode Validation Failed",
+          description: `${validation.errors.length} issues found. Export blocked until resolved.`,
+          variant: "destructive",
+        });
+      }
+    } else {
+      // Legacy validation for non-strict mode
+      let hasIssues = false;
+      note.questions.forEach(item => {
+        if (!item.evidence || item.evidence.trim().length === 0) {
+          item.needsReview = true;
+          hasIssues = true;
+        }
       });
+      
+      if (hasIssues) {
+        toast({
+          title: "Missing evidence detected",
+          description: "Some Q&A items lack evidence quotes and need review.",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -138,15 +231,21 @@ export function CornellNoteGenerator() {
     const questions: Array<{ question: string; answer: string; evidence?: string; needsReview?: boolean }> = [];
     const usedAnswers = new Set<string>();
     
-    // Helper function to get unique answer
+    // Helper function to get full sentence answer (no ellipses in strict mode)
     const getUniqueAnswer = (sentence: string): string => {
-      return sentence.trim().substring(0, 150) + (sentence.trim().length > 150 ? '...' : '');
+      const trimmed = sentence.trim();
+      if (isStrict) {
+        // In strict mode, ensure complete sentences without truncation
+        return trimmed.endsWith('.') || trimmed.endsWith('!') || trimmed.endsWith('?') ? 
+               trimmed : trimmed + '.';
+      }
+      return trimmed.length > 150 ? trimmed.substring(0, 150) + '...' : trimmed;
     };
 
-    // Helper function to extract evidence (short quote from text)
+    // Helper function to extract evidence (direct quote from text)
     const getEvidence = (sentence: string): string => {
       const words = sentence.trim().split(' ');
-      return words.slice(0, 8).join(' ') + (words.length > 8 ? '...' : '');
+      return words.slice(0, 12).join(' ') + (words.length > 12 ? '...' : '');
     };
     
     // Q1: Main topic/subject (use first substantial sentence)
@@ -331,14 +430,16 @@ export function CornellNoteGenerator() {
     });
     
     // If we don't have enough, add the first few substantive sentences
-    if (takeaways.length < 5) {
+    const targetCount = strictMode ? Math.max(5, Math.min(7, takeaways.length + 5)) : 7;
+    if (takeaways.length < (strictMode ? 5 : 5)) {
       const additionalTakeaways = sentences
         .filter(s => s.trim().length > 40 && s.trim().length < 100)
-        .slice(0, 7 - takeaways.length);
+        .filter(s => !takeaways.includes(s.trim()))
+        .slice(0, targetCount - takeaways.length);
       takeaways.push(...additionalTakeaways.map(s => s.trim()));
     }
     
-    return takeaways.slice(0, 7);
+    return strictMode ? takeaways.slice(0, 7) : takeaways.slice(0, 7);
   };
 
   const generateSummary = (text: string): string => {
@@ -351,19 +452,70 @@ export function CornellNoteGenerator() {
       summaryParts.push(sentences[Math.floor(sentences.length * 0.25)]?.trim()); // First quarter
       summaryParts.push(sentences[Math.floor(sentences.length * 0.5)]?.trim()); // Middle
       summaryParts.push(sentences[Math.floor(sentences.length * 0.75)]?.trim()); // Third quarter
-      summaryParts.push(sentences[sentences.length - 1]?.trim()); // Closing statement
+      if (sentences.length > 1) {
+        summaryParts.push(sentences[sentences.length - 1]?.trim()); // Closing statement
+      }
     } else {
       // For shorter texts, use available sentences
       summaryParts.push(...sentences.map(s => s.trim()));
     }
     
-    return summaryParts.filter(Boolean).slice(0, 6).join('. ') + '.';
+    // In strict mode, ensure we have 4-8 sentences
+    const filteredParts = summaryParts.filter(Boolean);
+    if (strictMode) {
+      const targetCount = Math.max(4, Math.min(8, filteredParts.length));
+      return filteredParts.slice(0, targetCount).join('. ') + '.';
+    }
+    
+    return filteredParts.slice(0, 6).join('. ') + '.';
   };
 
   const copyToClipboard = () => {
     if (!cornellNote) return;
+    
+    // In strict mode, block export if validation fails
+    if (strictMode && cornellNote.isValid === false) {
+      toast({
+        title: "Export blocked",
+        description: "Fix validation errors before exporting in Strict Mode.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    const markdownContent = `# ${cornellNote.title}
+    const markdownContent = strictMode ? 
+      // Strict mode format with evidence
+      `# ${cornellNote.title}
+**Date:** ${cornellNote.date}  
+**Module:** ${cornellNote.module}  
+
+<!-- keywords:start -->
+## Keywords
+${cornellNote.keywords.map(keyword => `- ${keyword}`).join('\n')}
+<!-- keywords:end -->
+
+<!-- qa:start -->
+## Questions & Answers
+${cornellNote.questions.map((qa, index) => 
+  `- **Q${index + 1}:** ${qa.question}
+  <details><summary>Answer</summary>
+  <p>${qa.answer}</p>
+  <p><em>Evidence:</em> "${qa.evidence || 'Not provided'}"</p>
+  </details>`
+).join('\n\n')}
+<!-- qa:end -->
+
+<!-- takeaways:start -->
+## Takeaways
+${cornellNote.takeaways.map(takeaway => `- ${takeaway}`).join('\n')}
+<!-- takeaways:end -->
+
+<!-- summary:start -->
+## Summary
+${cornellNote.summary}
+<!-- summary:end -->` :
+      // Standard format  
+      `# ${cornellNote.title}
 **Date:** ${cornellNote.date}  
 **Module:** ${cornellNote.module}  
 
@@ -475,10 +627,15 @@ ${cornellNote.summary}
                     variant="outline"
                     size="sm"
                     onClick={copyToClipboard}
-                    className="hover:bg-primary hover:text-primary-foreground transition-smooth"
+                    disabled={strictMode && cornellNote.isValid === false}
+                    className={`hover:bg-primary hover:text-primary-foreground transition-smooth ${
+                      strictMode && cornellNote.isValid === false 
+                        ? 'opacity-50 cursor-not-allowed hover:bg-transparent hover:text-current' 
+                        : ''
+                    }`}
                   >
                     <Copy className="w-4 h-4 mr-2" />
-                    Copy
+                    {strictMode && cornellNote.isValid === false ? 'Export Blocked' : 'Copy'}
                   </Button>
                 )}
               </CardTitle>
@@ -486,6 +643,24 @@ ${cornellNote.summary}
             <CardContent>
               {cornellNote ? (
                 <div className="space-y-6 text-sm">
+                  {/* Validation Errors for Strict Mode */}
+                  {strictMode && cornellNote.validationErrors && cornellNote.validationErrors.length > 0 && (
+                    <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+                      <h4 className="font-semibold text-destructive mb-2 flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4" />
+                        Strict Mode Validation Errors
+                      </h4>
+                      <ul className="list-disc list-inside space-y-1 text-destructive text-sm">
+                        {cornellNote.validationErrors.map((error, index) => (
+                          <li key={index}>{error}</li>
+                        ))}
+                      </ul>
+                      <p className="text-xs text-destructive/80 mt-2">
+                        Export is blocked until all issues are resolved.
+                      </p>
+                    </div>
+                  )}
+
                   {/* Header */}
                   <div className="border-b border-border pb-4">
                     <h3 className="text-xl font-bold">{cornellNote.title}</h3>
