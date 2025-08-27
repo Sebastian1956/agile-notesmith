@@ -1,12 +1,19 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Copy, FileText, Sparkles, ShieldCheck } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Copy, FileText, Sparkles, ShieldCheck, Lightbulb } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+interface TakeawaySuggestion {
+  sentence: string;
+  score: number;
+  selected: boolean;
+}
 
 interface CornellNote {
   title: string;
@@ -25,7 +32,172 @@ export function CornellNoteGenerator() {
   const [cornellNote, setCornellNote] = useState<CornellNote | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [strictMode, setStrictMode] = useState(false);
+  const [suggestedTakeaways, setSuggestedTakeaways] = useState<TakeawaySuggestion[]>([]);
+  const [selectedTakeaways, setSelectedTakeaways] = useState<string[]>([]);
+  const [domainVocabulary, setDomainVocabulary] = useState("");
   const { toast } = useToast();
+
+  // Extract takeaway suggestions using domain-neutral scoring heuristic
+  const extractTakeawaySuggestions = (text: string, keywords: string[]): TakeawaySuggestion[] => {
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 15);
+    const suggestions: TakeawaySuggestion[] = [];
+    const usedSentences = new Set<string>();
+
+    // Domain vocabulary terms (optional user input)
+    const domainTerms = domainVocabulary.toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
+    
+    // Auto-extract concept terms (capitalized noun phrases, frequent bigrams)
+    const conceptTerms = extractConceptTerms(text);
+
+    sentences.forEach(sentence => {
+      const trimmed = sentence.trim();
+      const lowerSentence = trimmed.toLowerCase();
+      
+      // Skip if already used or too short/long
+      if (usedSentences.has(trimmed) || trimmed.length < 20 || trimmed.length > 200) return;
+
+      let score = 0;
+      const wordCount = trimmed.split(/\s+/).length;
+
+      // +3 for sentences beginning with specific patterns
+      const starterPatterns = [
+        /^(it|this|the)\s+(is|introduces|describes|defines|explains|emphasizes|recommends|provides|demonstrates|enables|results in)/i
+      ];
+      if (starterPatterns.some(pattern => pattern.test(trimmed))) {
+        score += 3;
+      }
+
+      // +2 for generic action verbs
+      const actionVerbs = ['introduces', 'describes', 'explains', 'defines', 'emphasizes', 'recommends', 'provides', 'demonstrates', 'enables', 'results'];
+      if (actionVerbs.some(verb => lowerSentence.includes(verb))) {
+        score += 2;
+      }
+
+      // +1 for each keyword match
+      keywords.forEach(keyword => {
+        if (lowerSentence.includes(keyword.toLowerCase())) {
+          score += 1;
+        }
+      });
+
+      // +1 for each concept term match
+      conceptTerms.forEach(term => {
+        if (lowerSentence.includes(term.toLowerCase())) {
+          score += 1;
+        }
+      });
+
+      // +1 for each domain vocabulary match
+      domainTerms.forEach(term => {
+        if (lowerSentence.includes(term)) {
+          score += 1;
+        }
+      });
+
+      // +1 if sentence length is 8-28 words
+      if (wordCount >= 8 && wordCount <= 28) {
+        score += 1;
+      }
+
+      // Add to suggestions if score > 0
+      if (score > 0) {
+        suggestions.push({
+          sentence: trimmed,
+          score,
+          selected: false
+        });
+        usedSentences.add(trimmed);
+      }
+    });
+
+    // Remove near-duplicates (-2 penalty)
+    const filteredSuggestions = removeDuplicates(suggestions);
+
+    // Sort by score (descending) and return top 8-12
+    return filteredSuggestions
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 12);
+  };
+
+  // Extract concept terms from text
+  const extractConceptTerms = (text: string): string[] => {
+    const concepts: string[] = [];
+    
+    // Capitalized noun phrases
+    const capitalizedPhrases = text.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g) || [];
+    concepts.push(...capitalizedPhrases.filter(p => p.length > 3));
+
+    // Frequent bigrams
+    const words = text.toLowerCase().split(/\s+/);
+    const bigramCounts: { [key: string]: number } = {};
+    
+    for (let i = 0; i < words.length - 1; i++) {
+      const bigram = `${words[i]} ${words[i + 1]}`;
+      if (bigram.length > 6 && !bigram.includes('the') && !bigram.includes('and')) {
+        bigramCounts[bigram] = (bigramCounts[bigram] || 0) + 1;
+      }
+    }
+
+    const frequentBigrams = Object.entries(bigramCounts)
+      .filter(([, count]) => count >= 2)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 10)
+      .map(([bigram]) => bigram);
+
+    concepts.push(...frequentBigrams);
+    
+    return [...new Set(concepts)];
+  };
+
+  // Remove near-duplicate suggestions
+  const removeDuplicates = (suggestions: TakeawaySuggestion[]): TakeawaySuggestion[] => {
+    const filtered: TakeawaySuggestion[] = [];
+    
+    suggestions.forEach(suggestion => {
+      const isDuplicate = filtered.some(existing => {
+        const similarity = calculateSimilarity(suggestion.sentence, existing.sentence);
+        return similarity > 0.7; // 70% similarity threshold
+      });
+      
+      if (!isDuplicate) {
+        filtered.push(suggestion);
+      } else {
+        // Apply -2 penalty for near-duplicates
+        suggestion.score = Math.max(0, suggestion.score - 2);
+        if (suggestion.score > 0) {
+          filtered.push(suggestion);
+        }
+      }
+    });
+    
+    return filtered;
+  };
+
+  // Simple similarity calculation
+  const calculateSimilarity = (str1: string, str2: string): number => {
+    const words1 = str1.toLowerCase().split(/\s+/);
+    const words2 = str2.toLowerCase().split(/\s+/);
+    const intersection = words1.filter(word => words2.includes(word)).length;
+    const union = new Set([...words1, ...words2]).size;
+    return intersection / union;
+  };
+
+  // Handle takeaway suggestion selection
+  const handleTakeawaySelection = (sentence: string, selected: boolean) => {
+    setSuggestedTakeaways(prev => 
+      prev.map(suggestion => 
+        suggestion.sentence === sentence 
+          ? { ...suggestion, selected }
+          : suggestion
+      )
+    );
+
+    if (selected) {
+      setSelectedTakeaways(prev => [...prev, sentence]);
+    } else {
+      setSelectedTakeaways(prev => prev.filter(s => s !== sentence));
+    }
+  };
 
   const generateCornellNote = async () => {
     if (!excerpt.trim()) {
@@ -54,13 +226,30 @@ export function CornellNoteGenerator() {
       // Simulate processing time for realistic feel
       await new Promise(resolve => setTimeout(resolve, 2000));
 
+      const keywords = extractKeywords(excerpt);
+      
+      // In strict mode, generate takeaway suggestions first
+      if (strictMode) {
+        const suggestions = extractTakeawaySuggestions(excerpt, keywords);
+        setSuggestedTakeaways(suggestions);
+        setSelectedTakeaways([]); // Reset selections
+        
+        if (suggestions.length < 5) {
+          toast({
+            title: "Insufficient takeaway suggestions",
+            description: `Only ${suggestions.length} suggestions found. You may need to manually add additional takeaways.`,
+            variant: "destructive",
+          });
+        }
+      }
+
       const note: CornellNote = {
         title: "Agile Extension Study Notes",
         date: new Date().toISOString().split('T')[0],
         module: "Agile Extension v2",
-        keywords: extractKeywords(excerpt),
+        keywords,
         questions: generateQuestions(excerpt, strictMode),
-        takeaways: generateTakeaways(excerpt),
+        takeaways: strictMode ? [] : generateTakeaways(excerpt), // In strict mode, wait for selection
         summary: generateSummary(excerpt)
       };
 
@@ -70,10 +259,18 @@ export function CornellNoteGenerator() {
       }
 
       setCornellNote(note);
-      toast({
-        title: "Cornell note generated!",
-        description: "Your study notes are ready for review.",
-      });
+      
+      if (strictMode) {
+        toast({
+          title: "Cornell note generated!",
+          description: "Please select 5-7 takeaways from the suggestions below.",
+        });
+      } else {
+        toast({
+          title: "Cornell note generated!",
+          description: "Your study notes are ready for review.",
+        });
+      }
     } catch (error) {
       toast({
         title: "Generation failed",
@@ -129,6 +326,29 @@ export function CornellNoteGenerator() {
       [...sortedTerms, ...words.filter(w => w.length > 6).slice(0, 6 - sortedTerms.length)];
   };
 
+  // Update takeaways with selected suggestions
+  const updateTakeawaysFromSelection = () => {
+    if (!cornellNote) return;
+
+    const updatedNote = { ...cornellNote, takeaways: selectedTakeaways };
+    
+    // Re-validate with new takeaways
+    if (strictMode) {
+      const validation = validateStrictMode(updatedNote);
+      updatedNote.isValid = validation.isValid;
+      updatedNote.validationErrors = validation.errors;
+    }
+    
+    setCornellNote(updatedNote);
+  };
+
+  // Auto-update takeaways when selections change
+  useEffect(() => {
+    if (strictMode && cornellNote && selectedTakeaways.length > 0) {
+      updateTakeawaysFromSelection();
+    }
+  }, [selectedTakeaways, strictMode]);
+
   const validateStrictMode = (note: CornellNote): { isValid: boolean; errors: string[] } => {
     const errors: string[] = [];
     
@@ -142,9 +362,10 @@ export function CornellNoteGenerator() {
       errors.push(`Q&A must have ≥5 items (found ${note.questions.length})`);
     }
     
-    // Check takeaways count (5-7)
-    if (note.takeaways.length < 5 || note.takeaways.length > 7) {
-      errors.push(`Takeaways must be 5-7 items (found ${note.takeaways.length})`);
+    // Check takeaways count (5-7) - use selectedTakeaways in strict mode
+    const takeawayCount = strictMode && selectedTakeaways.length > 0 ? selectedTakeaways.length : note.takeaways.length;
+    if (takeawayCount < 5 || takeawayCount > 7) {
+      errors.push(`Takeaways must be 5-7 items (found ${takeawayCount})`);
     }
     
     // Check summary sentence count (4-8)
@@ -598,6 +819,25 @@ ${cornellNote.summary}
                   onCheckedChange={setStrictMode}
                 />
               </div>
+
+              {/* Domain Vocabulary Input (Optional) */}
+              {strictMode && (
+                <div className="space-y-2">
+                  <Label htmlFor="domain-vocab" className="text-sm font-medium">
+                    Domain Vocabulary (Optional)
+                  </Label>
+                  <Textarea
+                    id="domain-vocab"
+                    placeholder="Enter domain-specific terms separated by commas (e.g., sprint, backlog, scrum master)..."
+                    value={domainVocabulary}
+                    onChange={(e) => setDomainVocabulary(e.target.value)}
+                    className="min-h-[80px] resize-none border-border/50 focus:border-primary transition-smooth"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    These terms will be used to enhance takeaway suggestions scoring.
+                  </p>
+                </div>
+              )}
               
               <div className="flex items-center justify-between">
                 <Badge variant="outline" className="text-muted-foreground">
@@ -706,12 +946,25 @@ ${cornellNote.summary}
 
                   {/* Takeaways */}
                   <div>
-                    <h4 className="font-semibold text-primary mb-2">Takeaways</h4>
-                    <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                      {cornellNote.takeaways.map((takeaway, index) => (
-                        <li key={index}>{takeaway}</li>
-                      ))}
-                    </ul>
+                    <h4 className="font-semibold text-primary mb-2 flex items-center gap-2">
+                      Takeaways
+                      {strictMode && (
+                        <Badge variant="outline" className="text-xs">
+                          {selectedTakeaways.length}/5-7 selected
+                        </Badge>
+                      )}
+                    </h4>
+                    {cornellNote.takeaways.length > 0 ? (
+                      <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                        {cornellNote.takeaways.map((takeaway, index) => (
+                          <li key={index}>{takeaway}</li>
+                        ))}
+                      </ul>
+                    ) : strictMode ? (
+                      <p className="text-muted-foreground text-sm italic">
+                        Select 5-7 takeaways from the suggestions below to populate this section.
+                      </p>
+                    ) : null}
                   </div>
 
                   {/* Summary */}
@@ -729,6 +982,78 @@ ${cornellNote.summary}
             </CardContent>
           </Card>
         </div>
+
+        {/* Takeaway Suggestions Tray (Strict Mode Only) */}
+        {strictMode && suggestedTakeaways.length > 0 && (
+          <Card className="shadow-soft border-0 mt-8">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Lightbulb className="w-5 h-5 text-accent" />
+                Suggested Takeaways
+                <Badge variant="outline" className="ml-2">
+                  {selectedTakeaways.length}/5-7 selected
+                </Badge>
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Select 5-7 takeaways from the suggestions below. These were scored using domain-neutral heuristics based on your excerpt.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 max-h-96 overflow-y-auto">
+                {suggestedTakeaways.map((suggestion, index) => (
+                  <div 
+                    key={index} 
+                    className={`flex items-start gap-3 p-3 rounded-lg border transition-smooth cursor-pointer hover:shadow-soft ${
+                      suggestion.selected 
+                        ? 'bg-primary/10 border-primary/30' 
+                        : 'bg-card border-border hover:border-primary/20'
+                    }`}
+                    onClick={() => handleTakeawaySelection(suggestion.sentence, !suggestion.selected)}
+                  >
+                    <Checkbox
+                      checked={suggestion.selected}
+                      onCheckedChange={(checked) => handleTakeawaySelection(suggestion.sentence, checked as boolean)}
+                      className="mt-1"
+                    />
+                    <div className="flex-1 space-y-1">
+                      <p className="text-sm leading-relaxed">{suggestion.sentence}</p>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">
+                          Score: {suggestion.score}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {suggestion.sentence.split(/\s+/).length} words
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              {selectedTakeaways.length < 5 && (
+                <div className="mt-4 p-3 bg-accent/10 border border-accent/20 rounded-lg">
+                  <p className="text-sm text-accent font-medium mb-1">
+                    ⚠️ Need more takeaways
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Select at least {5 - selectedTakeaways.length} more takeaway{5 - selectedTakeaways.length !== 1 ? 's' : ''} to meet the minimum requirement for export.
+                  </p>
+                </div>
+              )}
+              
+              {selectedTakeaways.length > 7 && (
+                <div className="mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+                  <p className="text-sm text-destructive font-medium mb-1">
+                    ⚠️ Too many takeaways
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Deselect {selectedTakeaways.length - 7} takeaway{selectedTakeaways.length - 7 !== 1 ? 's' : ''} to meet the maximum requirement.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );
