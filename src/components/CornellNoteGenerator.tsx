@@ -205,15 +205,38 @@ export function CornellNoteGenerator() {
   const cleanupText = (text: string): string => {
     let cleaned = text;
     
-    // Fix fragmented words like "o f" -> "of", "b usiness" -> "business"
-    // Pattern: single letter followed by space and another letter/word
-    cleaned = cleaned.replace(/\b([a-zA-Z])\s+([a-zA-Z])\b/g, '$1$2');
+    // Fix only very specific common fragmented patterns to avoid joining legitimate words
+    const fragmentPatterns: Array<[RegExp, string]> = [
+      // Only fix very common small words that are clearly fragmented
+      [/\bo\s+f\b/gi, 'of'],
+      [/\ba\s+nd\b/gi, 'and'],
+      [/\bt\s+he\b/gi, 'the'],
+      [/\bt\s+o\b/gi, 'to'],
+      [/\bi\s+n\b/gi, 'in'],
+      [/\bi\s+s\b/gi, 'is'],
+      [/\bo\s+r\b/gi, 'or'],
+      [/\ba\s+s\b/gi, 'as'],
+      [/\bf\s+or\b/gi, 'for'],
+      [/\bb\s+y\b/gi, 'by'],
+      [/\ba\s+t\b/gi, 'at'],
+      [/\bi\s+t\b/gi, 'it'],
+      
+      // Fix specific business/technical terms only when clearly fragmented
+      [/\bb\s+usiness\b/gi, 'business'],
+      [/\ba\s+nalysis\b/gi, 'analysis'],
+      [/\bc\s+ontext\b/gi, 'context'],
+      [/\bp\s+ractice\b/gi, 'practice'],
+      [/\bp\s+rocess\b/gi, 'process'],
+      [/\mr\s+equirement\b/gi, 'requirement'],
+      [/\ms\s+takeholder\b/gi, 'stakeholder'],
+      [/\mp\s+roject\b/gi, 'project'],
+      [/\mm\s+anager\b/gi, 'manager'],
+    ];
     
-    // Fix patterns like "a nalysis" -> "analysis", "c ontext" -> "context"
-    cleaned = cleaned.replace(/\b([a-zA-Z])\s+([a-zA-Z]{2,})\b/g, '$1$2');
-    
-    // Fix patterns like "business a nalysis" -> "business analysis"
-    cleaned = cleaned.replace(/\b([a-zA-Z]{2,})\s+([a-zA-Z])\s+([a-zA-Z]{2,})\b/g, '$1 $2$3');
+    // Apply specific pattern fixes
+    fragmentPatterns.forEach(([pattern, replacement]) => {
+      cleaned = cleaned.replace(pattern, replacement);
+    });
     
     // Normalize multiple spaces to single space
     cleaned = cleaned.replace(/\s+/g, ' ');
