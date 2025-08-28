@@ -193,7 +193,9 @@ export function CornellNoteGenerator() {
     );
 
     if (selected) {
-      setSelectedTakeaways(prev => [...prev, sentence]);
+      setSelectedTakeaways(prev => 
+        prev.includes(sentence) ? prev : [...prev, sentence]
+      );
     } else {
       setSelectedTakeaways(prev => prev.filter(s => s !== sentence));
     }
