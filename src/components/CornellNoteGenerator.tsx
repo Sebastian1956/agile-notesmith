@@ -201,6 +201,29 @@ export function CornellNoteGenerator() {
     }
   };
 
+  // Cleanup function to fix fragmented words and normalize whitespace
+  const cleanupText = (text: string): string => {
+    let cleaned = text;
+    
+    // Fix fragmented words like "o f" -> "of", "b usiness" -> "business"
+    // Pattern: single letter followed by space and another letter/word
+    cleaned = cleaned.replace(/\b([a-zA-Z])\s+([a-zA-Z])\b/g, '$1$2');
+    
+    // Fix patterns like "a nalysis" -> "analysis", "c ontext" -> "context"
+    cleaned = cleaned.replace(/\b([a-zA-Z])\s+([a-zA-Z]{2,})\b/g, '$1$2');
+    
+    // Fix patterns like "business a nalysis" -> "business analysis"
+    cleaned = cleaned.replace(/\b([a-zA-Z]{2,})\s+([a-zA-Z])\s+([a-zA-Z]{2,})\b/g, '$1 $2$3');
+    
+    // Normalize multiple spaces to single space
+    cleaned = cleaned.replace(/\s+/g, ' ');
+    
+    // Clean up extra whitespace
+    cleaned = cleaned.trim();
+    
+    return cleaned;
+  };
+
   const generateCornellNote = async () => {
     if (!excerpt.trim()) {
       toast({
@@ -211,7 +234,9 @@ export function CornellNoteGenerator() {
       return;
     }
 
-    const wordCount = excerpt.trim().split(/\s+/).length;
+    // Clean up the excerpt to fix fragmented words
+    const cleanedExcerpt = cleanupText(excerpt);
+    const wordCount = cleanedExcerpt.trim().split(/\s+/).length;
     
     if (wordCount < 300) {
       toast({
@@ -228,11 +253,11 @@ export function CornellNoteGenerator() {
       // Simulate processing time for realistic feel
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      const keywords = extractKeywords(excerpt);
+      const keywords = extractKeywords(cleanedExcerpt);
       
       // In strict mode, generate takeaway suggestions first
       if (strictMode) {
-        const suggestions = extractTakeawaySuggestions(excerpt, keywords);
+        const suggestions = extractTakeawaySuggestions(cleanedExcerpt, keywords);
         setSuggestedTakeaways(suggestions);
         setSelectedTakeaways([]); // Reset selections
         
@@ -250,9 +275,9 @@ export function CornellNoteGenerator() {
         date: new Date().toISOString().split('T')[0],
         module: "Agile Extension v2",
         keywords,
-        questions: generateQuestions(excerpt, strictMode),
-        takeaways: strictMode ? [] : generateTakeaways(excerpt), // In strict mode, wait for selection
-        summary: generateSummary(excerpt)
+        questions: generateQuestions(cleanedExcerpt, strictMode),
+        takeaways: strictMode ? [] : generateTakeaways(cleanedExcerpt), // In strict mode, wait for selection
+        summary: generateSummary(cleanedExcerpt)
       };
 
       // Validate evidence in strict mode
