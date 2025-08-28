@@ -205,9 +205,21 @@ export function CornellNoteGenerator() {
   const cleanupText = (text: string): string => {
     let cleaned = text;
     
-    // Fix only very specific common fragmented patterns to avoid joining legitimate words
+    // Fix fragmented words more comprehensively
+    // Pattern 1: Single letter + space + lowercase word (fragmented words)
+    // But avoid joining if the single letter could be a legitimate word (A, I)
+    // and avoid joining if what follows starts with a capital (separate word)
+    cleaned = cleaned.replace(/\b([a-z])\s+([a-z][a-z]+)\b/g, (match, letter, rest) => {
+      // Don't join common single-letter words that should stay separate
+      if (['a', 'i'].includes(letter.toLowerCase())) {
+        return match; // Keep original
+      }
+      return letter + rest;
+    });
+    
+    // Pattern 2: Fix common fragmented words specifically
     const fragmentPatterns: Array<[RegExp, string]> = [
-      // Only fix very common small words that are clearly fragmented
+      // Common small words
       [/\bo\s+f\b/gi, 'of'],
       [/\ba\s+nd\b/gi, 'and'],
       [/\bt\s+he\b/gi, 'the'],
@@ -215,22 +227,29 @@ export function CornellNoteGenerator() {
       [/\bi\s+n\b/gi, 'in'],
       [/\bi\s+s\b/gi, 'is'],
       [/\bo\s+r\b/gi, 'or'],
-      [/\ba\s+s\b/gi, 'as'],
       [/\bf\s+or\b/gi, 'for'],
       [/\bb\s+y\b/gi, 'by'],
       [/\ba\s+t\b/gi, 'at'],
-      [/\bi\s+t\b/gi, 'it'],
+      [/\bo\s+n\b/gi, 'on'],
+      [/\bu\s+p\b/gi, 'up'],
       
-      // Fix specific business/technical terms only when clearly fragmented
+      // Common longer words that get fragmented
+      [/\be\s+ach\b/gi, 'each'],
+      [/\bu\s+sed\b/gi, 'used'],
+      [/\bt\s+echniques?\b/gi, 'technique'],
+      [/\bp\s+ractices?\b/gi, 'practice'],
+      [/\bh\s+orizon\b/gi, 'horizon'],
       [/\bb\s+usiness\b/gi, 'business'],
       [/\ba\s+nalysis\b/gi, 'analysis'],
       [/\bc\s+ontext\b/gi, 'context'],
-      [/\bp\s+ractice\b/gi, 'practice'],
       [/\bp\s+rocess\b/gi, 'process'],
-      [/\mr\s+equirement\b/gi, 'requirement'],
-      [/\ms\s+takeholder\b/gi, 'stakeholder'],
-      [/\mp\s+roject\b/gi, 'project'],
-      [/\mm\s+anager\b/gi, 'manager'],
+      [/\br\s+equirement\b/gi, 'requirement'],
+      [/\bs\s+takeholder\b/gi, 'stakeholder'],
+      [/\bp\s+roject\b/gi, 'project'],
+      [/\bm\s+anager\b/gi, 'manager'],
+      [/\bd\s+evelop\b/gi, 'develop'],
+      [/\bv\s+alue\b/gi, 'value'],
+      [/\bd\s+etail\b/gi, 'detail'],
     ];
     
     // Apply specific pattern fixes
