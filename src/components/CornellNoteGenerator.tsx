@@ -37,6 +37,43 @@ export function CornellNoteGenerator() {
   const [domainVocabulary, setDomainVocabulary] = useState("");
   const { toast } = useToast();
 
+  // Filter out questions and transform them into declarative statements for Cornell Notes
+  const filterQuestionTakeaways = (sentence: string): { isValid: boolean; transformed?: string } => {
+    const trimmed = sentence.trim();
+    
+    // Check if it's a question (ends with ? or starts with question words)
+    const questionPatterns = [
+      /\?$/,
+      /^(what|how|why|when|where|who|which|can|could|would|should|will|do|does|did|is|are|was|were)\s/i
+    ];
+    
+    const isQuestion = questionPatterns.some(pattern => pattern.test(trimmed));
+    
+    if (!isQuestion) {
+      return { isValid: true };
+    }
+    
+    // Try to transform common question patterns into declarative statements
+    let transformed = trimmed;
+    
+    // Transform "What is X?" to "X is defined as..." (but skip if we can't reasonably transform)
+    if (/^what\s+is\s+(.+?)\?$/i.test(trimmed)) {
+      const match = trimmed.match(/^what\s+is\s+(.+?)\?$/i);
+      if (match && match[1]) {
+        // Only transform if the rest of the sentence provides context
+        return { isValid: false }; // Skip these for now as they need more context
+      }
+    }
+    
+    // Transform "How does X work?" style questions (skip these as they're typically not good takeaways)
+    if (/^(how|why|when|where)\s/i.test(trimmed)) {
+      return { isValid: false };
+    }
+    
+    // For other question patterns, just filter them out
+    return { isValid: false };
+  };
+
   // Extract takeaway suggestions using domain-neutral scoring heuristic
   const extractTakeawaySuggestions = (text: string, keywords: string[]): TakeawaySuggestion[] => {
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 15);
@@ -99,14 +136,18 @@ export function CornellNoteGenerator() {
         score += 1;
       }
 
-      // Add to suggestions if score > 0
+      // Add to suggestions if score > 0 and it's not a question
       if (score > 0) {
-        suggestions.push({
-          sentence: trimmed,
-          score,
-          selected: false
-        });
-        usedSentences.add(trimmed);
+        const filterResult = filterQuestionTakeaways(trimmed);
+        if (filterResult.isValid) {
+          const finalSentence = filterResult.transformed || trimmed;
+          suggestions.push({
+            sentence: finalSentence,
+            score,
+            selected: false
+          });
+          usedSentences.add(finalSentence);
+        }
       }
     });
 
@@ -707,24 +748,31 @@ export function CornellNoteGenerator() {
     sentences.forEach(sentence => {
       const trimmed = sentence.trim();
       if (trimmed.length > 30 && trimmed.length < 120) {
+        // Filter out questions first
+        const filterResult = filterQuestionTakeaways(trimmed);
+        if (!filterResult.isValid) return;
+        
+        const finalSentence = filterResult.transformed || trimmed;
+        
         // Look for sentences that contain key concepts
-        if (trimmed.toLowerCase().includes('important') || 
-            trimmed.toLowerCase().includes('key') ||
-            trimmed.toLowerCase().includes('must') ||
-            trimmed.toLowerCase().includes('should') ||
-            trimmed.toLowerCase().includes('essential') ||
-            trimmed.toLowerCase().includes('critical')) {
-          takeaways.push(trimmed);
+        if (finalSentence.toLowerCase().includes('important') || 
+            finalSentence.toLowerCase().includes('key') ||
+            finalSentence.toLowerCase().includes('must') ||
+            finalSentence.toLowerCase().includes('should') ||
+            finalSentence.toLowerCase().includes('essential') ||
+            finalSentence.toLowerCase().includes('critical')) {
+          takeaways.push(finalSentence);
         }
       }
     });
     
-    // If we don't have enough, add the first few substantive sentences
+    // If we don't have enough, add the first few substantive sentences (non-questions)
     const targetCount = strictMode ? Math.max(5, Math.min(7, takeaways.length + 5)) : 7;
     if (takeaways.length < (strictMode ? 5 : 5)) {
       const additionalTakeaways = sentences
         .filter(s => s.trim().length > 40 && s.trim().length < 100)
         .filter(s => !takeaways.includes(s.trim()))
+        .filter(s => filterQuestionTakeaways(s.trim()).isValid) // Filter out questions
         .slice(0, targetCount - takeaways.length);
       takeaways.push(...additionalTakeaways.map(s => s.trim()));
     }
