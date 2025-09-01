@@ -395,69 +395,64 @@ export function CornellNoteGenerator() {
   const extractKeywords = (text: string): string[] => {
     const textLower = text.toLowerCase();
     
-    // AAC exam-critical terms - prioritize these if found in text
+    // AAC exam-critical terms only - prioritize most important concepts
     const aacCriticalTerms = [
       'agile mindset',
       'business value',
-      'rolling wave planning',
+      'rolling-wave planning', 
       'three horizons',
-      'babok link',
-      'agile extension',
-      'business analysis',
+      'babok integration',
       'strategy horizon',
-      'initiative horizon', 
+      'initiative horizon',
       'delivery horizon',
       'adaptive planning',
       'value delivery',
       'stakeholder collaboration',
+      'agile extension',
+      'business analysis',
       'iterative development',
       'continuous improvement'
     ];
     
-    // Find critical terms that exist in the text
+    // Find AAC critical terms that exist in the text
     const foundCriticalTerms = aacCriticalTerms.filter(term => 
       textLower.includes(term)
     );
     
-    // Extract additional significant phrases from the text
-    const words = textLower.split(/\s+/);
-    const termCounts: { [key: string]: number } = {};
-    
-    // Look for 2-3 word phrases that appear multiple times
-    for (let i = 0; i < words.length - 1; i++) {
-      const twoWord = words.slice(i, i + 2).join(' ');
-      const threeWord = words.slice(i, i + 3).join(' ');
+    // If we need more terms, extract clean conceptual phrases (no filler/numbering)
+    if (foundCriticalTerms.length < 5) {
+      const words = textLower.split(/\s+/);
+      const conceptualPhrases: { [key: string]: number } = {};
       
-      if (twoWord.length > 6 && !twoWord.includes('the') && !twoWord.includes('and')) {
-        termCounts[twoWord] = (termCounts[twoWord] || 0) + 1;
+      // Look for 2-3 word conceptual phrases
+      for (let i = 0; i < words.length - 1; i++) {
+        const twoWord = words.slice(i, i + 2).join(' ');
+        const threeWord = words.slice(i, i + 3).join(' ');
+        
+        // Only include substantive concepts, avoid filler words and numbering
+        if (twoWord.length > 8 && 
+            !twoWord.match(/\d/) && 
+            !['the ', 'and ', 'that ', 'this ', 'with ', 'from ', 'they ', 'have ', 'will ', 'can ', 'are ', 'for '].some(filler => twoWord.includes(filler))) {
+          conceptualPhrases[twoWord] = (conceptualPhrases[twoWord] || 0) + 1;
+        }
+        if (threeWord.length > 12 && 
+            !threeWord.match(/\d/) && 
+            !['the ', 'and ', 'that ', 'this ', 'with ', 'from ', 'they ', 'have ', 'will ', 'can ', 'are ', 'for '].some(filler => threeWord.includes(filler))) {
+          conceptualPhrases[threeWord] = (conceptualPhrases[threeWord] || 0) + 1;
+        }
       }
-      if (threeWord.length > 10 && !threeWord.includes('the') && !threeWord.includes('and')) {
-        termCounts[threeWord] = (termCounts[threeWord] || 0) + 1;
-      }
+      
+      // Get most relevant conceptual phrases
+      const additionalTerms = Object.entries(conceptualPhrases)
+        .filter(([term]) => !foundCriticalTerms.some(critical => critical.includes(term)))
+        .sort(([,a], [,b]) => b - a)
+        .slice(0, 7 - foundCriticalTerms.length)
+        .map(([term]) => term);
+        
+      foundCriticalTerms.push(...additionalTerms);
     }
     
-    // Get most frequent non-critical terms
-    const frequentTerms = Object.entries(termCounts)
-      .filter(([term]) => !foundCriticalTerms.some(critical => critical.includes(term)))
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 7 - foundCriticalTerms.length)
-      .map(([term]) => term);
-    
-    // Combine critical terms with frequent terms, ensure 5-7 keywords
-    let keywords = [...foundCriticalTerms, ...frequentTerms];
-    
-    // If we still need more keywords, add single important words
-    if (keywords.length < 5) {
-      const singleWords = words.filter(w => 
-        w.length > 6 && 
-        !['the', 'and', 'that', 'this', 'with', 'from', 'they', 'have', 'will'].includes(w) &&
-        !keywords.some(keyword => keyword.includes(w))
-      );
-      const uniqueWords = [...new Set(singleWords)].slice(0, 5 - keywords.length);
-      keywords = [...keywords, ...uniqueWords];
-    }
-    
-    return keywords.slice(0, 7);
+    return foundCriticalTerms.slice(0, 7);
   };
 
   // Update takeaways with selected suggestions
@@ -560,136 +555,86 @@ export function CornellNoteGenerator() {
     const questions: Array<{ question: string; answer: string; evidence?: string; needsReview?: boolean }> = [];
     const usedContent = new Set<string>();
     
-    // Helper to create integrated 2-3 sentence answers from related content
-    const createIntegratedAnswer = (primarySentence: string, contextSentences: string[] = []): string => {
-      const sentences: string[] = [primarySentence.trim()];
+    // Helper to create 1-2 crisp, integrated sentences from content
+    const createCrispAnswer = (primarySentence: string, contextSentences: string[] = []): string => {
+      // Clean the primary sentence
+      let primaryCleaned = primarySentence.trim();
       
-      // Find 1-2 related sentences that add context or explanation
-      const relatedSentences = contextSentences
-        .filter(s => s.trim().length > 20 && !usedContent.has(s.trim()))
-        .filter(s => {
-          const words = primarySentence.toLowerCase().split(/\s+/);
-          const sWords = s.toLowerCase().split(/\s+/);
-          const commonWords = words.filter(w => sWords.includes(w) && w.length > 4);
-          return commonWords.length >= 2; // Has some conceptual overlap
-        })
-        .slice(0, 2);
-        
-      sentences.push(...relatedSentences.map(s => s.trim()));
+      // Find one related sentence for additional context if needed
+      const relatedSentence = contextSentences.find(s => {
+        const sWords = s.toLowerCase().split(/\s+/);
+        const pWords = primaryCleaned.toLowerCase().split(/\s+/);
+        const commonWords = pWords.filter(w => sWords.includes(w) && w.length > 4);
+        return s.trim().length > 25 && 
+               !usedContent.has(s.trim()) && 
+               commonWords.length >= 2 &&
+               s.trim() !== primaryCleaned;
+      });
       
-      return sentences
-        .map(s => s.endsWith('.') || s.endsWith('!') || s.endsWith('?') ? s : s + '.')
-        .join(' ');
+      // Create 1-2 sentence integrated answer
+      if (relatedSentence) {
+        usedContent.add(relatedSentence.trim());
+        return `${primaryCleaned.endsWith('.') ? primaryCleaned : primaryCleaned + '.'} ${relatedSentence.trim().endsWith('.') ? relatedSentence.trim() : relatedSentence.trim() + '.'}`;
+      }
+      
+      return primaryCleaned.endsWith('.') ? primaryCleaned : primaryCleaned + '.';
     };
 
-    // AAC exam-focused conceptual questions
+    // Exactly 5 AAC exam-focused conceptual questions
+    const questionTemplates = [
+      {
+        pattern: ['horizon', 'framework', 'model', 'approach', 'structure', 'methodology'],
+        question: "How does the Agile Extension framework structure business analysis activities?"
+      },
+      {
+        pattern: ['agile', 'mindset', 'adaptive', 'collaborative', 'iterative', 'flexible'],
+        question: "What distinguishes the agile mindset from traditional business analysis approaches?"
+      },
+      {
+        pattern: ['value', 'benefit', 'outcome', 'delivery', 'customer', 'stakeholder'],
+        question: "How does the Agile Extension emphasize business value delivery?"
+      },
+      {
+        pattern: ['planning', 'plan', 'requirements', 'analysis', 'scope', 'change', 'adaptive'],
+        question: "What planning and adaptation techniques does the Agile Extension recommend?"
+      },
+      {
+        pattern: ['babok', 'business analyst', 'extension', 'complement', 'enhance', 'integrate'],
+        question: "How does the Agile Extension integrate with core BABOK practices?"
+      }
+    ];
     
-    // Q1: Conceptual framework or model understanding
-    const frameworkSentence = sentences.find(s => {
-      const lower = s.toLowerCase();
-      return !usedContent.has(s.trim()) && (
-        lower.includes('horizon') || lower.includes('framework') || 
-        lower.includes('model') || lower.includes('approach') ||
-        lower.includes('structure') || lower.includes('methodology')
-      );
-    });
-    if (frameworkSentence) {
-      const answer = createIntegratedAnswer(frameworkSentence, sentences);
-      questions.push({
-        question: "How does the Agile Extension framework structure business analysis activities?",
-        answer: answer
+    // Generate exactly 5 questions using the templates
+    questionTemplates.forEach((template, index) => {
+      const sentence = sentences.find(s => {
+        const lower = s.toLowerCase();
+        return !usedContent.has(s.trim()) && 
+               template.pattern.some(keyword => lower.includes(keyword));
       });
-      usedContent.add(frameworkSentence.trim());
-    }
-    
-    // Q2: Agile mindset vs traditional practices
-    const mindsetSentence = sentences.find(s => {
-      const lower = s.toLowerCase();
-      return !usedContent.has(s.trim()) && (
-        lower.includes('agile') || lower.includes('mindset') || 
-        lower.includes('adaptive') || lower.includes('collaborative') ||
-        lower.includes('iterative') || lower.includes('flexible')
-      );
-    });
-    if (mindsetSentence && questions.length < 5) {
-      const answer = createIntegratedAnswer(mindsetSentence, sentences);
-      questions.push({
-        question: "What distinguishes the agile mindset from traditional business analysis approaches?",
-        answer: answer
-      });
-      usedContent.add(mindsetSentence.trim());
-    }
-    
-    // Q3: Business value and delivery focus
-    const valueSentence = sentences.find(s => {
-      const lower = s.toLowerCase();
-      return !usedContent.has(s.trim()) && (
-        lower.includes('value') || lower.includes('benefit') || 
-        lower.includes('outcome') || lower.includes('delivery') ||
-        lower.includes('customer') || lower.includes('stakeholder')
-      );
-    });
-    if (valueSentence && questions.length < 5) {
-      const answer = createIntegratedAnswer(valueSentence, sentences);
-      questions.push({
-        question: "How does the Agile Extension emphasize business value delivery?",
-        answer: answer
-      });
-      usedContent.add(valueSentence.trim());
-    }
-    
-    // Q4: Planning and adaptation mechanisms
-    const planningSentence = sentences.find(s => {
-      const lower = s.toLowerCase();
-      return !usedContent.has(s.trim()) && (
-        lower.includes('planning') || lower.includes('plan') || 
-        lower.includes('requirements') || lower.includes('analysis') ||
-        lower.includes('scope') || lower.includes('change')
-      );
-    });
-    if (planningSentence && questions.length < 5) {
-      const answer = createIntegratedAnswer(planningSentence, sentences);
-      questions.push({
-        question: "What planning and adaptation techniques does the Agile Extension recommend?",
-        answer: answer
-      });
-      usedContent.add(planningSentence.trim());
-    }
-    
-    // Q5: Integration with BABOK or broader BA practices
-    const integrationSentence = sentences.find(s => {
-      const lower = s.toLowerCase();
-      return !usedContent.has(s.trim()) && (
-        lower.includes('babok') || lower.includes('business analyst') || 
-        lower.includes('extension') || lower.includes('complement') ||
-        lower.includes('enhance') || lower.includes('integrate')
-      );
-    });
-    if (integrationSentence && questions.length < 5) {
-      const answer = createIntegratedAnswer(integrationSentence, sentences);
-      questions.push({
-        question: "How does the Agile Extension integrate with core BABOK practices?",
-        answer: answer
-      });
-      usedContent.add(integrationSentence.trim());
-    }
-    
-    // Fill any remaining slots with substantive conceptual questions
-    while (questions.length < 5) {
-      const remainingSentence = sentences.find(s => 
-        !usedContent.has(s.trim()) && s.trim().length > 40
-      );
       
-      if (!remainingSentence) break;
-      
-      const answer = createIntegratedAnswer(remainingSentence, sentences);
-      const conceptFocus = remainingSentence.trim().split(' ').slice(2, 6).join(' ').toLowerCase();
-      questions.push({
-        question: `What key concepts does the excerpt explain about ${conceptFocus}?`,
-        answer: answer
-      });
-      usedContent.add(remainingSentence.trim());
-    }
+      if (sentence) {
+        const answer = createCrispAnswer(sentence, sentences);
+        questions.push({
+          question: template.question,
+          answer: answer
+        });
+        usedContent.add(sentence.trim());
+      } else {
+        // Fallback to any substantive sentence for this template
+        const fallbackSentence = sentences.find(s => 
+          !usedContent.has(s.trim()) && s.trim().length > 40
+        );
+        
+        if (fallbackSentence) {
+          const answer = createCrispAnswer(fallbackSentence, sentences);
+          questions.push({
+            question: template.question,
+            answer: answer
+          });
+          usedContent.add(fallbackSentence.trim());
+        }
+      }
+    });
     
     return questions.slice(0, 5);
   };
@@ -699,120 +644,76 @@ export function CornellNoteGenerator() {
     const takeaways: string[] = [];
     const usedSentences = new Set<string>();
     
-    // Focus on relationship and distinction takeaways for AAC exam prep
+    // Core relationship and distinction takeaways for AAC exam
+    const coreTemplates = [
+      {
+        keywords: ['mindset', 'practices', 'agile', 'philosophy'],
+        fallback: "Agile represents a mindset and philosophy, not just a set of practices or methodologies."
+      },
+      {
+        keywords: ['horizon', 'strategy', 'initiative', 'delivery', 'framework'],
+        fallback: "Three Horizons framework organizes planning into Strategy, Initiative, and Delivery levels with different time spans and detail levels."
+      },
+      {
+        keywords: ['business value', 'value delivery', 'customer', 'outcomes'],
+        fallback: "Business value delivery is the primary focus, emphasizing customer outcomes over process compliance."
+      },
+      {
+        keywords: ['beyond software', 'all contexts', 'broader', 'not limited'],
+        fallback: "Agile Extension applies to all business contexts, extending beyond software development to any business analysis work."
+      },
+      {
+        keywords: ['babok', 'complement', 'extension', 'enhance', 'integrate'],
+        fallback: "Agile Extension complements BABOK by providing enhanced techniques for agile and adaptive contexts."
+      }
+    ];
     
-    // 1. Agile mindset vs practices distinction
-    const mindsetSentence = sentences.find(s => {
-      const lower = s.toLowerCase();
-      const trimmed = s.trim();
-      const filterResult = filterQuestionTakeaways(trimmed);
-      return filterResult.isValid && !usedSentences.has(trimmed) && (
-        lower.includes('mindset') || lower.includes('practices') ||
-        (lower.includes('agile') && (lower.includes('not') || lower.includes('more than')))
-      );
-    });
-    if (mindsetSentence) {
-      const cleaned = mindsetSentence.trim();
-      takeaways.push(cleaned.endsWith('.') ? cleaned : cleaned + '.');
-      usedSentences.add(cleaned);
-    } else {
-      takeaways.push("Agile represents a mindset and philosophy, not just a set of practices or methodologies.");
-    }
-    
-    // 2. Three Horizons framework structure
-    const horizonSentence = sentences.find(s => {
-      const lower = s.toLowerCase();
-      const trimmed = s.trim();
-      const filterResult = filterQuestionTakeaways(trimmed);
-      return filterResult.isValid && !usedSentences.has(trimmed) && (
-        lower.includes('horizon') || lower.includes('strategy') || 
-        lower.includes('initiative') || lower.includes('delivery')
-      );
-    });
-    if (horizonSentence) {
-      const cleaned = horizonSentence.trim();
-      takeaways.push(cleaned.endsWith('.') ? cleaned : cleaned + '.');
-      usedSentences.add(cleaned);
-    } else {
-      takeaways.push("Three Horizons framework organizes planning into Strategy, Initiative, and Delivery levels with different time spans and detail levels.");
-    }
-    
-    // 3. Business value and delivery focus
-    const valueSentence = sentences.find(s => {
-      const lower = s.toLowerCase();
-      const trimmed = s.trim();
-      const filterResult = filterQuestionTakeaways(trimmed);
-      return filterResult.isValid && !usedSentences.has(trimmed) && (
-        lower.includes('business value') || lower.includes('value delivery') ||
-        (lower.includes('value') && (lower.includes('deliver') || lower.includes('customer')))
-      );
-    });
-    if (valueSentence) {
-      const cleaned = valueSentence.trim();
-      takeaways.push(cleaned.endsWith('.') ? cleaned : cleaned + '.');
-      usedSentences.add(cleaned);
-    } else {
-      takeaways.push("Business value delivery is the primary focus, emphasizing customer outcomes over process compliance.");
-    }
-    
-    // 4. Agile Extension scope beyond software
-    const scopeSentence = sentences.find(s => {
-      const lower = s.toLowerCase();
-      const trimmed = s.trim();
-      const filterResult = filterQuestionTakeaways(trimmed);
-      return filterResult.isValid && !usedSentences.has(trimmed) && (
-        lower.includes('beyond software') || lower.includes('not limited') ||
-        lower.includes('broader') || lower.includes('all contexts')
-      );
-    });
-    if (scopeSentence) {
-      const cleaned = scopeSentence.trim();
-      takeaways.push(cleaned.endsWith('.') ? cleaned : cleaned + '.');
-      usedSentences.add(cleaned);
-    } else {
-      takeaways.push("Agile Extension applies to all business contexts, extending beyond software development to any business analysis work.");
-    }
-    
-    // 5. BABOK integration and complementary relationship
-    const babokSentence = sentences.find(s => {
-      const lower = s.toLowerCase();
-      const trimmed = s.trim();
-      const filterResult = filterQuestionTakeaways(trimmed);
-      return filterResult.isValid && !usedSentences.has(trimmed) && (
-        lower.includes('babok') || lower.includes('complement') ||
-        lower.includes('extension') || lower.includes('enhance')
-      );
-    });
-    if (babokSentence) {
-      const cleaned = babokSentence.trim();
-      takeaways.push(cleaned.endsWith('.') ? cleaned : cleaned + '.');
-      usedSentences.add(cleaned);
-    } else {
-      takeaways.push("Agile Extension complements BABOK by enhancing techniques for agile and adaptive contexts.");
-    }
-    
-    // Add additional substantive takeaways if needed to reach 5-7
-    const additionalSentences = sentences
-      .filter(s => {
+    // Find sentences for each core template
+    coreTemplates.forEach(template => {
+      const matchingSentence = sentences.find(s => {
+        const lower = s.toLowerCase();
         const trimmed = s.trim();
         const filterResult = filterQuestionTakeaways(trimmed);
         return filterResult.isValid && 
                !usedSentences.has(trimmed) && 
-               trimmed.length > 40 && 
-               trimmed.length < 120 &&
-               (trimmed.toLowerCase().includes('important') ||
-                trimmed.toLowerCase().includes('key') ||
-                trimmed.toLowerCase().includes('enables') ||
-                trimmed.toLowerCase().includes('ensures') ||
-                trimmed.toLowerCase().includes('emphasizes'));
-      })
-      .slice(0, 7 - takeaways.length);
-    
-    additionalSentences.forEach(sentence => {
-      const cleaned = sentence.trim();
-      takeaways.push(cleaned.endsWith('.') ? cleaned : cleaned + '.');
-      usedSentences.add(cleaned);
+               template.keywords.some(keyword => lower.includes(keyword));
+      });
+      
+      if (matchingSentence) {
+        const cleaned = matchingSentence.trim();
+        const finalTakeaway = cleaned.endsWith('.') ? cleaned : cleaned + '.';
+        takeaways.push(finalTakeaway);
+        usedSentences.add(cleaned);
+      } else {
+        takeaways.push(template.fallback);
+      }
     });
+    
+    // Add 1-2 additional focused takeaways if needed to reach 5-7
+    if (takeaways.length < 7) {
+      const additionalSentences = sentences
+        .filter(s => {
+          const trimmed = s.trim();
+          const filterResult = filterQuestionTakeaways(trimmed);
+          return filterResult.isValid && 
+                 !usedSentences.has(trimmed) && 
+                 trimmed.length > 30 && 
+                 trimmed.length < 100 &&
+                 (trimmed.toLowerCase().includes('enables') ||
+                  trimmed.toLowerCase().includes('ensures') ||
+                  trimmed.toLowerCase().includes('emphasizes') ||
+                  trimmed.toLowerCase().includes('requires') ||
+                  trimmed.toLowerCase().includes('supports'));
+        })
+        .slice(0, 7 - takeaways.length);
+      
+      additionalSentences.forEach(sentence => {
+        const cleaned = sentence.trim();
+        const finalTakeaway = cleaned.endsWith('.') ? cleaned : cleaned + '.';
+        takeaways.push(finalTakeaway);
+        usedSentences.add(cleaned);
+      });
+    }
     
     return takeaways.slice(0, 7);
   };
@@ -820,74 +721,71 @@ export function CornellNoteGenerator() {
   const generateSummary = (text: string): string => {
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 20);
     
-    // Create an integrated paragraph for AAC exam memory aid
-    // Focus on key concepts that flow together coherently
-    
-    // Identify key themes for the integrated summary
-    const themes: { [key: string]: string[] } = {
-      purpose: [],
-      framework: [],
-      mindset: [],
-      value: [],
-      scope: []
-    };
-    
-    sentences.forEach(sentence => {
-      const lower = sentence.toLowerCase();
-      const trimmed = sentence.trim();
-      
-      if (lower.includes('purpose') || lower.includes('agile extension') || lower.includes('introduces')) {
-        themes.purpose.push(trimmed);
-      } else if (lower.includes('horizon') || lower.includes('framework') || lower.includes('planning')) {
-        themes.framework.push(trimmed);
-      } else if (lower.includes('mindset') || lower.includes('adaptive') || lower.includes('collaborative')) {
-        themes.mindset.push(trimmed);
-      } else if (lower.includes('business value') || lower.includes('customer') || lower.includes('stakeholder')) {
-        themes.value.push(trimmed);
-      } else if (lower.includes('beyond software') || lower.includes('all contexts') || lower.includes('babok')) {
-        themes.scope.push(trimmed);
-      }
-    });
-    
-    // Build integrated summary with connecting language
+    // Build integrated summary following the order: purpose → horizons → mindset → scope → business value
     let summaryParts: string[] = [];
     
-    // Purpose and introduction
-    if (themes.purpose.length > 0) {
-      summaryParts.push(themes.purpose[0]);
+    // 1. Purpose - What is the Agile Extension v2 and why does it exist?
+    const purposeSentence = sentences.find(s => {
+      const lower = s.toLowerCase();
+      return lower.includes('agile extension') || lower.includes('purpose') || 
+             lower.includes('provides') || lower.includes('enhances');
+    });
+    
+    if (purposeSentence) {
+      summaryParts.push(purposeSentence.trim());
     } else {
-      summaryParts.push("The Agile Extension v2 enhances the BABOK by providing guidance for business analysis in agile and adaptive contexts");
+      summaryParts.push("The Agile Extension v2 enhances the BABOK by providing comprehensive guidance for business analysis in agile and adaptive contexts");
     }
     
-    // Framework structure
-    if (themes.framework.length > 0) {
-      summaryParts.push("This framework utilizes " + themes.framework[0].charAt(0).toLowerCase() + themes.framework[0].slice(1));
+    // 2. Horizons - How is the framework structured?
+    const horizonSentence = sentences.find(s => {
+      const lower = s.toLowerCase();
+      return lower.includes('horizon') || lower.includes('framework') || lower.includes('planning');
+    });
+    
+    if (horizonSentence) {
+      summaryParts.push("The framework utilizes " + horizonSentence.trim().charAt(0).toLowerCase() + horizonSentence.trim().slice(1));
     } else {
-      summaryParts.push("This framework organizes agile business analysis using the Three Horizons model (Strategy, Initiative, and Delivery) with rolling-wave planning techniques");
+      summaryParts.push("The framework organizes agile business analysis using the Three Horizons model, structuring Strategy, Initiative, and Delivery levels with rolling-wave planning techniques");
     }
     
-    // Core philosophy
-    if (themes.mindset.length > 0) {
-      summaryParts.push("The extension emphasizes " + themes.mindset[0].charAt(0).toLowerCase() + themes.mindset[0].slice(1));
+    // 3. Mindset - What philosophical approach does it emphasize?
+    const mindsetSentence = sentences.find(s => {
+      const lower = s.toLowerCase();
+      return lower.includes('mindset') || lower.includes('collaborative') || lower.includes('adaptive');
+    });
+    
+    if (mindsetSentence) {
+      summaryParts.push("This approach emphasizes " + mindsetSentence.trim().charAt(0).toLowerCase() + mindsetSentence.trim().slice(1));
     } else {
-      summaryParts.push("The extension emphasizes an agile mindset focused on collaboration, adaptation, and iterative value delivery rather than rigid process adherence");
+      summaryParts.push("This approach emphasizes an agile mindset focused on collaboration, adaptation, and iterative value delivery rather than rigid process adherence");
     }
     
-    // Value focus
-    if (themes.value.length > 0) {
-      summaryParts.push("Ultimately, " + themes.value[0].charAt(0).toLowerCase() + themes.value[0].slice(1));
+    // 4. Scope - What contexts does it apply to?
+    const scopeSentence = sentences.find(s => {
+      const lower = s.toLowerCase();
+      return lower.includes('beyond software') || lower.includes('all contexts') || lower.includes('broader');
+    });
+    
+    if (scopeSentence) {
+      summaryParts.push("The guidance extends " + scopeSentence.trim().charAt(0).toLowerCase() + scopeSentence.trim().slice(1));
     } else {
-      summaryParts.push("Ultimately, the goal is delivering maximum business value through stakeholder collaboration and responsive planning");
+      summaryParts.push("The guidance extends beyond software development to all business analysis contexts while maintaining integration with core BABOK practices");
     }
     
-    // Scope and integration
-    if (themes.scope.length > 0) {
-      summaryParts.push("Importantly, " + themes.scope[0].charAt(0).toLowerCase() + themes.scope[0].slice(1));
+    // 5. Business Value - What is the ultimate goal?
+    const valueSentence = sentences.find(s => {
+      const lower = s.toLowerCase();
+      return lower.includes('business value') || lower.includes('stakeholder') || lower.includes('customer');
+    });
+    
+    if (valueSentence) {
+      summaryParts.push("Ultimately, " + valueSentence.trim().charAt(0).toLowerCase() + valueSentence.trim().slice(1));
     } else {
-      summaryParts.push("Importantly, this guidance extends beyond software development to all business analysis contexts while complementing core BABOK practices");
+      summaryParts.push("Ultimately, the goal is delivering maximum business value through stakeholder collaboration and responsive planning that adapts to changing requirements");
     }
     
-    // Clean up and join into cohesive paragraph (4-6 sentences)
+    // Clean up and create flowing paragraph (4-6 sentences)
     const cleanedParts = summaryParts
       .filter(Boolean)
       .map(part => {
