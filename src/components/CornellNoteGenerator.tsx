@@ -508,12 +508,8 @@ export function CornellNoteGenerator() {
       errors.push(`Summary must be 4-8 sentences (found ${summaryBlocks.length})`);
     }
     
-    // Check each Q&A item for evidence and full sentences
+    // Check each Q&A item for full sentences (no evidence required)
     note.questions.forEach((qa, index) => {
-      if (!qa.evidence || qa.evidence.trim().length === 0) {
-        errors.push(`Q${index + 1} missing evidence quote`);
-      }
-      
       // Check answer is full sentence (no ellipses, ends with punctuation)
       if (qa.answer.includes('...')) {
         errors.push(`Q${index + 1} answer contains ellipses - must be full sentences`);
@@ -549,36 +545,14 @@ export function CornellNoteGenerator() {
       note.validationErrors = validation.errors;
       
       if (!validation.isValid) {
-        note.questions.forEach(item => {
-          if (!item.evidence || item.evidence.trim().length === 0) {
-            item.needsReview = true;
-          }
-        });
-        
         toast({
           title: "Strict Mode Validation Failed",
           description: `${validation.errors.length} issues found. Export blocked until resolved.`,
           variant: "destructive",
         });
       }
-    } else {
-      // Legacy validation for non-strict mode
-      let hasIssues = false;
-      note.questions.forEach(item => {
-        if (!item.evidence || item.evidence.trim().length === 0) {
-          item.needsReview = true;
-          hasIssues = true;
-        }
-      });
-      
-      if (hasIssues) {
-        toast({
-          title: "Missing evidence detected",
-          description: "Some Q&A items lack evidence quotes and need review.",
-          variant: "destructive",
-        });
-      }
     }
+    // No validation needed for non-strict mode since evidence is no longer required
   };
 
   const generateQuestions = (text: string, isStrict: boolean = false): Array<{ question: string; answer: string; evidence?: string; needsReview?: boolean }> => {
