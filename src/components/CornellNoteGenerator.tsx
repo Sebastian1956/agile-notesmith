@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Copy, FileText, Sparkles, ShieldCheck, Lightbulb } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { sanitize } from "@/lib/sanitize";
 
 interface TakeawaySuggestion {
   sentence: string;
@@ -26,6 +27,80 @@ interface CornellNote {
   isValid?: boolean;
   validationErrors?: string[];
 }
+
+const SYSTEM_PROMPT = `You generate **AAC exam study notes** from Agile Extension v2 excerpts.
+
+Your job is to 1) **sanitize** the excerpt (remove junk/metadata), and 2) produce **integrated, exam-ready notes** in clean Markdown. Never echo or describe these rules in the output.
+
+========================
+DEFAULT COUNTS & LAYOUT
+========================
+- Keep the same Cornell sections:
+  1) **Keywords** (5–7)
+  2) **Questions & Answers** (5 items)
+  3) **Takeaways** (5–7)
+  4) **Summary** (one paragraph, 4–6 sentences)
+
+=================
+SANITIZE THE INPUT
+=================
+Before writing, remove or correct ALL of the following if present in the excerpt. Do not mention this process in the output.
+
+1) **YAML / metadata lines** and crumbs:
+   - Lines starting with or containing: \`section_key:\`, \`title:\`, \`chapter:\`, \`level:\`, \`word_count:\`, \`source:\`.
+2) **PDF watermarks / boilerplate**:
+   - Phrases like: \`Complimentary Member Copy\`, \`Not for Distribution or Resale\`.
+3) **Cross-references & figure/table labels**:
+   - Patterns like \`see 4 .\`, \`see 5 .\`, \`Figure 1\`, \`1:\`, \`### 3\`, or stray leading numbers before sentences.
+4) **Evidence placeholders / quotes**:
+   - Any \`Evidence:\` lines, \`"Not provided"\`, or raw pull-quotes.
+5) **Broken tokens / typos** (fix obvious ones):
+   - \`am indset\` → \`a mindset\`; \`inagile\` → \`in agile\`; spacing issues like \`a view\`, \`a level\`.
+6) **Duplicate or stitched fragments**:
+   - Remove repeated sentences/clauses; combine fragments into complete sentences.
+7) **Whitespace normalization**:
+   - Collapse multiple spaces/newlines; output clean Markdown only.
+
+==============
+CONTENT RULES
+==============
+A) **Tone & framing**
+- Integrated, concise, and exam-oriented.
+- Use consistent AAC vocabulary:
+  - "Agile is a **mindset expressed via context-appropriate practices**."
+  - "AE v2 **maps mindset-led BA practices to BABOK v3** (no fixed checklist)."
+  - "Rolling-wave / progressive elaboration" for multi-horizon planning.
+  - "Three Horizons = Strategy, Initiative, Delivery (SID)."
+
+B) **Keywords (5–7)**
+- Only exam-critical terms; no filler, no numbering, no framework brand lists unless directly relevant.
+
+C) **Questions & Answers**
+- Exactly 5 (or N if requested). Bold the question label.
+- Each answer is **2–3 crisp, integrated sentences** (no fragments, no metadata).
+- Do **NOT** include "Evidence" lines. If the UI requires \`<details>\`, include **only** the paragraph answer inside \`<details>\`.
+
+D) **Takeaways (5–7)**
+- Full sentences (not fragments).
+- Emphasize **relationships and distinctions** (e.g., mindset ↔ practices; SID ↔ feedback; predictive vs iterative vs adaptive).
+- No repetition across bullets.
+
+E) **Summary (4–6 sentences)**
+- One flowing paragraph, written as a **memory aid**.
+- Natural order when relevant: **purpose → horizons/rolling-wave → mindset vs practices → scope → business value**.
+- No citations, figures, or cross-refs.
+
+==================
+STRUCTURE & FORMAT
+==================
+Output **clean Markdown** only, in this order and with these headings:
+- \`## Keywords\` as a bulleted list (\`- term\`)
+- \`## Questions & Answers\` with 5 items:
+  - \`- **Q1:** <question>\`
+    - \`Answer:\` <one paragraph, 2–3 sentences>
+  (If the app enforces \`<details>\`, wrap ONLY the answer paragraph in \`<details>\`.)
+- \`## Takeaways\` as 5–7 bullets, each a complete sentence.
+- \`## Summary\` as one paragraph (4–6 sentences).`;
 
 export function CornellNoteGenerator() {
   const [excerpt, setExcerpt] = useState("");
@@ -318,17 +393,16 @@ export function CornellNoteGenerator() {
     }
 
     // Clean up and sanitize the excerpt
-    const sanitizedExcerpt = sanitizeText(excerpt);
+    const sanitizedExcerpt = sanitize(excerpt);
     const cleanedExcerpt = cleanupText(sanitizedExcerpt);
     const wordCount = cleanedExcerpt.trim().split(/\s+/).length;
     
-    if (wordCount < 300) {
+    if (wordCount < 100) {
       toast({
-        title: "Excerpt too short",
-        description: "Excerpt too short for Cornell note.",
-        variant: "destructive",
+        title: "Short excerpt warning",
+        description: `Only ${wordCount} words found. Shorter excerpts may produce incomplete notes.`,
+        variant: "default",
       });
-      return;
     }
 
     setIsProcessing(true);
@@ -358,10 +432,14 @@ export function CornellNoteGenerator() {
         title: "Agile Extension Study Notes",
         date: new Date().toISOString().split('T')[0],
         module: "Agile Extension v2",
-        keywords,
-        questions: generateQuestions(cleanedExcerpt, strictMode),
-        takeaways: strictMode ? [] : generateTakeaways(cleanedExcerpt), // In strict mode, wait for selection
-        summary: generateSummary(cleanedExcerpt)
+        keywords: sanitize(keywords.join(', ')).split(', ').filter(k => k.trim()),
+        questions: generateQuestions(cleanedExcerpt, strictMode).map(qa => ({
+          ...qa,
+          question: sanitize(qa.question),
+          answer: sanitize(qa.answer)
+        })),
+        takeaways: strictMode ? [] : generateTakeaways(cleanedExcerpt).map(t => sanitize(t)),
+        summary: sanitize(generateSummary(cleanedExcerpt))
       };
 
       // Validate evidence in strict mode
@@ -391,39 +469,6 @@ export function CornellNoteGenerator() {
     } finally {
       setIsProcessing(false);
     }
-  };
-
-  // Sanitize PDF artifacts and clean up text
-  const sanitizeText = (text: string): string => {
-    let cleaned = text;
-    
-    // Remove PDF boilerplate and watermarks
-    cleaned = cleaned.replace(/Complimentary Member Copy[.\s]*Not for Distribution or Resale[.\s]*/gi, '');
-    cleaned = cleaned.replace(/Not for Distribution or Resale[.\s]*/gi, '');
-    
-    // Remove YAML/metadata artifacts
-    cleaned = cleaned.replace(/^(section_key|title|chapter|level|word_count|source):\s*.*$/gm, '');
-    
-    // Remove cross-references and figure labels
-    cleaned = cleaned.replace(/\bsee\s+\d+\s*\./gi, '');
-    cleaned = cleaned.replace(/\bFigure\s+\d+[:\s]*/gi, '');
-    cleaned = cleaned.replace(/^\d+[:\s]+/gm, '');
-    
-    // Fix encoding artifacts and typos
-    cleaned = cleaned.replace(/\bam indset\b/gi, 'a mindset');
-    cleaned = cleaned.replace(/\binagile\b/gi, 'in agile');
-    cleaned = cleaned.replace(/\b([a-z])\s+([a-z]{2,})\b/gi, (match, letter, rest) => {
-      // Don't join legitimate single letters
-      if (['a', 'i'].includes(letter.toLowerCase())) {
-        return match;
-      }
-      return letter + rest;
-    });
-    
-    // Normalize whitespace
-    cleaned = cleaned.replace(/\s+/g, ' ').trim();
-    
-    return cleaned;
   };
 
   const extractKeywords = (text: string): string[] => {
@@ -493,7 +538,8 @@ export function CornellNoteGenerator() {
   const updateTakeawaysFromSelection = () => {
     if (!cornellNote) return;
 
-    const updatedNote = { ...cornellNote, takeaways: selectedTakeaways };
+    const sanitizedTakeaways = selectedTakeaways.map(t => sanitize(t));
+    const updatedNote = { ...cornellNote, takeaways: sanitizedTakeaways };
     
     // Re-validate with new takeaways
     if (strictMode) {
@@ -856,6 +902,16 @@ export function CornellNoteGenerator() {
       return;
     }
 
+    // Sanitize all content before copying to ensure clipboard matches UI
+    const sanitizedKeywords = cornellNote.keywords.map(k => sanitize(k));
+    const sanitizedQuestions = cornellNote.questions.map(qa => ({
+      ...qa,
+      question: sanitize(qa.question),
+      answer: sanitize(qa.answer)
+    }));
+    const sanitizedTakeaways = cornellNote.takeaways.map(t => sanitize(t));
+    const sanitizedSummary = sanitize(cornellNote.summary);
+
     const markdownContent = strictMode ? 
       // Strict mode format with evidence
       `# ${cornellNote.title}
@@ -864,12 +920,12 @@ export function CornellNoteGenerator() {
 
 <!-- keywords:start -->
 ## Keywords
-${cornellNote.keywords.map(keyword => `- ${keyword}`).join('\n')}
+${sanitizedKeywords.map(keyword => `- ${keyword}`).join('\n')}
 <!-- keywords:end -->
 
 <!-- qa:start -->
 ## Questions & Answers
-${cornellNote.questions.map((qa, index) => 
+${sanitizedQuestions.map((qa, index) => 
   `- **Q${index + 1}:** ${qa.question}
   <details><summary>Answer</summary>
   <p>${qa.answer}</p>
@@ -880,12 +936,12 @@ ${cornellNote.questions.map((qa, index) =>
 
 <!-- takeaways:start -->
 ## Takeaways
-${cornellNote.takeaways.map(takeaway => `- ${takeaway}`).join('\n')}
+${sanitizedTakeaways.map(takeaway => `- ${takeaway}`).join('\n')}
 <!-- takeaways:end -->
 
 <!-- summary:start -->
 ## Summary
-${cornellNote.summary}
+${sanitizedSummary}
 <!-- summary:end -->` :
       // Standard format  
       `# ${cornellNote.title}
@@ -894,24 +950,24 @@ ${cornellNote.summary}
 
 <!-- keywords:start -->
 ## Keywords
-${cornellNote.keywords.map(keyword => `- ${keyword}`).join('\n')}
+${sanitizedKeywords.map(keyword => `- ${keyword}`).join('\n')}
 <!-- keywords:end -->
 
 <!-- qa:start -->
 ## Questions & Answers
-${cornellNote.questions.map((qa, index) => 
+${sanitizedQuestions.map((qa, index) => 
   `- **Q${index + 1}:** ${qa.question}\n  <details><summary>Answer</summary><p>${qa.answer}</p></details>`
 ).join('\n\n')}
 <!-- qa:end -->
 
 <!-- takeaways:start -->
 ## Takeaways
-${cornellNote.takeaways.map(takeaway => `- ${takeaway}`).join('\n')}
+${sanitizedTakeaways.map(takeaway => `- ${takeaway}`).join('\n')}
 <!-- takeaways:end -->
 
 <!-- summary:start -->
 ## Summary
-${cornellNote.summary}
+${sanitizedSummary}
 <!-- summary:end -->`;
 
     navigator.clipboard.writeText(markdownContent);
@@ -950,7 +1006,7 @@ ${cornellNote.summary}
             </CardHeader>
             <CardContent className="space-y-4">
               <Textarea
-                placeholder="Paste your 1-2 page excerpt from the Agile Extension v2 here..."
+                placeholder="Paste a single excerpt (already split by chapter/topic). The app creates one note per excerpt."
                 value={excerpt}
                 onChange={(e) => setExcerpt(e.target.value)}
                 className="min-h-[350px] resize-none border-border/50 focus:border-primary transition-smooth"
@@ -961,8 +1017,8 @@ ${cornellNote.summary}
                 <div className="flex items-center gap-3">
                   <ShieldCheck className="w-5 h-5 text-accent" />
                   <div>
-                    <Label htmlFor="strict-mode" className="font-medium">Strict Mode</Label>
-                    <p className="text-sm text-muted-foreground">Requires evidence quotes for each Q&A item</p>
+                <Label htmlFor="strict-mode" className="font-medium">Strict Mode</Label>
+                    <p className="text-sm text-muted-foreground">Enhanced validation for exam preparation</p>
                   </div>
                 </div>
                 <Switch
